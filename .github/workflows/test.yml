@@ -233,8 +233,8 @@ jobs:
       - name: Verify all types parsing
         run: |
           echo "=== Dumping all_types table ==="
-          # Run with debug and filter to all_types columns only (first columns and NULLs)
-          docker exec pg pgdump-offline -d /var/lib/postgresql/data/ -db testdb -t all_types -debug 2>&1 | grep -E "(col_bool|col_int2|col_int4|col_float|col_numeric|col_money|col_char|col_varchar|col_text|col_inet|col_json|NULL)" | head -60
+          # Run with debug - use grep -a for binary-safe text matching
+          docker exec pg pgdump-offline -d /var/lib/postgresql/data/ -db testdb -t all_types -debug 2>&1 | grep -aE "col_(bool|int2|int4|int8|float|numeric|money|char|varchar|text|bytea|inet)" | head -60
           OUTPUT=$(docker exec pg pgdump-offline -d /var/lib/postgresql/data/ -db testdb -t all_types 2>/dev/null)
           echo "$OUTPUT" | jq .
           

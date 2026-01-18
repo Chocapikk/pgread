@@ -319,14 +319,23 @@ jobs:
       - name: Create test data
         run: |
           $PG_PATH/psql -h localhost -c "CREATE TABLE users (id SERIAL, email VARCHAR(255), password_hash VARCHAR(255));" testdb
-          $PG_PATH/psql -h localhost -c "INSERT INTO users (email, password_hash) VALUES ('admin@test.com', '\$argon2id\$hash');" testdb
+          $PG_PATH/psql -h localhost -c "INSERT INTO users (email, password_hash) VALUES ('admin@test.com', 'argon2hash');" testdb
           $PG_PATH/psql -h localhost -c "CREATE TABLE secrets (id SERIAL, name VARCHAR(255), value JSONB);" testdb
-          $PG_PATH/psql -h localhost -c "INSERT INTO secrets (name, value) VALUES ('aws', '{\"key\": \"AKIA...\"}');" testdb
+          $PG_PATH/psql -h localhost -c "INSERT INTO secrets (name, value) VALUES ('aws', '{\"key\": \"AKIA\"}');" testdb
           
-          # Test multiple types
-          $PG_PATH/psql -h localhost -c "CREATE TABLE type_test (col_int INTEGER, col_text TEXT, col_bool BOOLEAN, col_float DOUBLE PRECISION, col_uuid UUID, col_inet INET, col_point POINT, col_jsonb JSONB, col_date DATE, col_money MONEY);" testdb
-          $PG_PATH/psql -h localhost -c "INSERT INTO type_test VALUES (42, 'test', true, 3.14, 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', '192.168.1.1', '(1,2)', '{\"secret\": \"pass\"}', '2025-01-18', '\$99.99');" testdb
+          # Test multiple types (removed money due to $ escaping issues)
+          $PG_PATH/psql -h localhost -c "CREATE TABLE type_test (col_int INTEGER, col_text TEXT, col_bool BOOLEAN, col_float DOUBLE PRECISION, col_uuid UUID, col_inet INET, col_point POINT, col_jsonb JSONB, col_date DATE);" testdb
+          $PG_PATH/psql -h localhost -c "INSERT INTO type_test VALUES (42, 'test', true, 3.14, 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', '192.168.1.1', '(1,2)', '{\"secret\": \"pass\"}', '2025-01-18');" testdb
+          
+          # Checkpoint and restart to flush data to disk
           $PG_PATH/psql -h localhost -c "CHECKPOINT;" testdb
+          brew services stop postgresql@${{ matrix.pg }}
+          sleep 3
+          brew services start postgresql@${{ matrix.pg }}
+          sleep 5
+          
+          # Verify data is there
+          $PG_PATH/psql -h localhost -c "SELECT * FROM type_test;" testdb
 
       - name: Build
         run: go build -o pgdump-offline .
@@ -345,6 +354,15 @@ jobs:
           echo "=== Testing type_test table ==="
           OUTPUT=$(./pgdump-offline -db testdb -t type_test)
           echo "$OUTPUT" | jq .
+          
+          # Check row_count first
+          ROW_COUNT=$(echo "$OUTPUT" | jq '.databases[0].tables[0].row_count')
+          echo "Row count: $ROW_COUNT"
+          if [ "$ROW_COUNT" -eq 0 ]; then
+            echo "WARNING: No rows found, data may not have been flushed"
+            exit 1
+          fi
+          
           echo "$OUTPUT" | jq -e '.databases[0].tables[0].rows[0].col_int == 42' || { echo "FAIL: int"; exit 1; }
           echo "$OUTPUT" | jq -e '.databases[0].tables[0].rows[0].col_jsonb.secret == "pass"' || { echo "FAIL: jsonb"; exit 1; }
           echo "=== macOS type tests PASSED ==="
@@ -402,7 +420,16 @@ jobs:
           # Test multiple types
           & "$env:PG_PATH\psql" -U postgres -d testdb -c "CREATE TABLE type_test (col_int INTEGER, col_text TEXT, col_bool BOOLEAN, col_float DOUBLE PRECISION, col_uuid UUID, col_inet INET, col_point POINT, col_jsonb JSONB, col_date DATE);"
           & "$env:PG_PATH\psql" -U postgres -d testdb -c "INSERT INTO type_test VALUES (42, 'test', true, 3.14, 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', '192.168.1.1', '(1,2)', '{\"secret\": \"pass\"}', '2025-01-18');"
+          
+          # Checkpoint and restart to flush data
           & "$env:PG_PATH\psql" -U postgres -d testdb -c "CHECKPOINT;"
+          Stop-Service -Name "postgresql-x64-${{ matrix.pg }}" -Force -ErrorAction SilentlyContinue
+          Start-Sleep -Seconds 3
+          Start-Service -Name "postgresql-x64-${{ matrix.pg }}"
+          Start-Sleep -Seconds 5
+          
+          # Verify data
+          & "$env:PG_PATH\psql" -U postgres -d testdb -c "SELECT * FROM type_test;"
 
       - name: Build
         run: go build -o pgdump-offline.exe .
@@ -410,6 +437,8 @@ jobs:
       - name: Test auto-detection
         shell: pwsh
         run: |
+          $env:PGPASSWORD = "postgres"
+          
           Write-Host "=== Testing -detect ==="
           .\pgdump-offline.exe -detect
           
@@ -423,6 +452,14 @@ jobs:
           $output = .\pgdump-offline.exe -db testdb -t type_test
           $output
           $json = $output | ConvertFrom-Json
+          
+          # Check row count first
+          $rowCount = $json.databases[0].tables[0].row_count
+          Write-Host "Row count: $rowCount"
+          if ($rowCount -eq 0) {
+            throw "No rows found - data may not have been flushed"
+          }
+          
           if ($json.databases[0].tables[0].rows[0].col_int -ne 42) { throw "FAIL: int" }
           if ($json.databases[0].tables[0].rows[0].col_jsonb.secret -ne "pass") { throw "FAIL: jsonb" }
           Write-Host "=== Windows type tests PASSED ==="

@@ -464,8 +464,26 @@ jobs:
           echo "PGDATA=$pgData" >> $env:GITHUB_ENV
           
           # Checkpoint and STOP PostgreSQL completely
-          & "$env:PG_PATH\psql" -U postgres -d testdb -c "CHECKPOINT;"
-          & "$env:PG_PATH\pg_ctl" stop -D "$pgData" -m fast -w
+          & "$env:PG_PATH\psql" -U postgres -c "CHECKPOINT;"
+          Write-Host "Stopping PostgreSQL with pg_ctl..."
+          
+          # Try pg_ctl first, fall back to service stop
+          try {
+            & "$env:PG_PATH\pg_ctl" stop -D "$pgData" -m fast -w
+            Write-Host "pg_ctl stop completed"
+          } catch {
+            Write-Host "pg_ctl failed, trying service stop..."
+            Stop-Service -Name "postgresql-x64-${{ matrix.pg }}" -Force
+          }
+          
+          # Wait and verify PostgreSQL is stopped
+          Start-Sleep -Seconds 5
+          $proc = Get-Process postgres* -ErrorAction SilentlyContinue
+          if ($proc) {
+            Write-Host "WARNING: PostgreSQL still running, force killing..."
+            $proc | Stop-Process -Force
+            Start-Sleep -Seconds 2
+          }
           Write-Host "PostgreSQL stopped - data should be on disk"
 
       - name: Build

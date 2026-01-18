@@ -3,7 +3,6 @@ package pgdump
 import (
 	"fmt"
 	"regexp"
-	"strings"
 )
 
 // SearchResult represents a match found during search
@@ -174,29 +173,30 @@ func QuickSearch(dataDir, pattern string) ([]SearchResult, error) {
 	})
 }
 
-// SearchSecrets searches for common secret patterns
+// SearchSecrets searches for secrets using trufflehog detectors
+// This is a convenience wrapper around ScanForSecrets
+// Deprecated: Use ScanForSecrets instead for more accurate detection
 func SearchSecrets(dataDir string) ([]SearchResult, error) {
-	patterns := []string{
-		// API keys and tokens
-		`(?i)(api[_-]?key|api[_-]?secret|access[_-]?key|secret[_-]?key)`,
-		`(?i)(bearer|token|jwt|auth)`,
-		// AWS
-		`AKIA[0-9A-Z]{16}`,
-		`(?i)aws[_-]?(access|secret)`,
-		// Passwords
-		`(?i)(password|passwd|pwd|secret)`,
-		// Private keys
-		`-----BEGIN (RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----`,
-		// Connection strings
-		`(?i)(postgres|mysql|mongodb|redis)://`,
-		// Credit cards (basic pattern)
-		`\b[0-9]{4}[- ]?[0-9]{4}[- ]?[0-9]{4}[- ]?[0-9]{4}\b`,
+	findings, err := ScanForSecrets(dataDir, &Options{SkipSystemTables: true})
+	if err != nil {
+		return nil, err
 	}
 
-	combinedPattern := strings.Join(patterns, "|")
-	return Search(dataDir, &SearchOptions{
-		Pattern:       combinedPattern,
-		CaseSensitive: false,
-		IncludeRow:    true,
-	})
+	// Convert SecretFinding to SearchResult for backwards compatibility
+	var results []SearchResult
+	for _, f := range findings {
+		results = append(results, SearchResult{
+			Database: f.Database,
+			Table:    f.Table,
+			Column:   f.Column,
+			RowNum:   f.RowIndex,
+			Value:    f.Raw,
+			Row: map[string]interface{}{
+				"detector": f.DetectorName,
+				"redacted": f.Redacted,
+				"verified": f.Verified,
+			},
+		})
+	}
+	return results, nil
 }

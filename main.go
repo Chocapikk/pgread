@@ -133,28 +133,27 @@ func main() {
 		return
 	}
 
-	// Search for secrets
+	// Search for secrets using trufflehog detectors
 	if secrets != "" {
 		if verbose {
-			fmt.Fprintln(os.Stderr, "[*] Searching for secrets...")
+			fmt.Fprintln(os.Stderr, "[*] Scanning for secrets with trufflehog detectors...")
 		}
-		var results []pgdump.SearchResult
-		var err error
-		if secrets == "auto" {
-			results, err = pgdump.SearchSecrets(dataDir)
-		} else {
-			results, err = pgdump.Search(dataDir, &pgdump.SearchOptions{
-				Pattern:    secrets,
-				IncludeRow: true,
-			})
-		}
+		findings, err := pgdump.ScanForSecrets(dataDir, &pgdump.Options{
+			DatabaseFilter:   dbFilter,
+			TableFilter:      tableFilter,
+			SkipSystemTables: true,
+		})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
+		if len(findings) == 0 {
+			fmt.Println("No secrets found")
+			return
+		}
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
-		enc.Encode(results)
+		enc.Encode(findings)
 		return
 	}
 

@@ -125,18 +125,24 @@ jobs:
           echo "=== Databases ==="
           docker exec pg psql -U postgres -c "SELECT oid, datname FROM pg_database;"
 
-      - name: Test pg_database parsing
+      - name: Verify testdb exists in pg_database
         run: |
-          echo "=== Testing pg_database ==="
-          docker exec pg pgdump-offline -f /var/lib/postgresql/data/global/1262
-          
-          echo "=== List databases ==="
+          echo "=== Databases in pg_database file ==="
           docker exec pg pgdump-offline -d /var/lib/postgresql/data/ -list-db
+          
+          echo "=== Verify testdb is present ==="
+          docker exec pg pgdump-offline -d /var/lib/postgresql/data/ -list-db | grep -q testdb || {
+            echo "ERROR: testdb not found in pg_database!"
+            echo "=== Raw pg_database file ==="
+            docker exec pg xxd /var/lib/postgresql/data/global/1262 | head -100
+            exit 1
+          }
+          echo "testdb found!"
 
       - name: Test full dump
         run: |
           echo "=== Testing full dump ==="
-          docker exec pg pgdump-offline -d /var/lib/postgresql/data/ -db testdb -v 2>&1 | tee dump.json
+          docker exec pg pgdump-offline -d /var/lib/postgresql/data/ -db testdb | tee dump.json
           
           # Verify output
           cat dump.json | jq -e '.databases[0].name == "testdb"'

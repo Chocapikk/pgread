@@ -193,4 +193,4 @@ GOOS=darwin GOARCH=arm64 go build -o pgread-macos
 
 ## License
 
-MIT
+[WTFPL](http://www.wtfpl.net/) - Do What The Fuck You Want To Public License

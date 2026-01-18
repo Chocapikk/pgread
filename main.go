@@ -16,7 +16,7 @@ func main() {
 	var (
 		dataDir, singleFile, dbFilter, tableFilter string
 		listOnly, verbose, showVersion             bool
-		detectPaths, listDBs                       bool
+		detectPaths, listDBs, debug                bool
 	)
 
 	flag.StringVar(&dataDir, "d", "", "PostgreSQL data directory (auto-detected if not set)")
@@ -27,6 +27,7 @@ func main() {
 	flag.BoolVar(&listDBs, "list-db", false, "List databases only")
 	flag.BoolVar(&detectPaths, "detect", false, "Show detected PostgreSQL paths")
 	flag.BoolVar(&verbose, "v", false, "Verbose output")
+	flag.BoolVar(&debug, "debug", false, "Debug tuple decoding")
 	flag.BoolVar(&showVersion, "version", false, "Show version")
 	flag.Usage = usage
 	flag.Parse()
@@ -89,6 +90,7 @@ func main() {
 		return
 	}
 
+	pgdump.Debug = debug
 	result, err := pgdump.DumpDataDir(dataDir, &pgdump.Options{
 		DatabaseFilter:   dbFilter,
 		TableFilter:      tableFilter,

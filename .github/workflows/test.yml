@@ -233,7 +233,8 @@ jobs:
       - name: Verify all types parsing
         run: |
           echo "=== Dumping all_types table ==="
-          OUTPUT=$(docker exec pg pgdump-offline -d /var/lib/postgresql/data/ -db testdb -t all_types)
+          docker exec pg pgdump-offline -d /var/lib/postgresql/data/ -db testdb -t all_types -debug 2>&1 | head -100
+          OUTPUT=$(docker exec pg pgdump-offline -d /var/lib/postgresql/data/ -db testdb -t all_types 2>/dev/null)
           echo "$OUTPUT" | jq .
           
           echo "=== Verifying type parsing ==="

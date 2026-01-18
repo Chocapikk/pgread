@@ -74,7 +74,8 @@ var (
 		{Name: "attstattarget", TypID: OidInt4, Len: 4},
 		{Name: "attlen", TypID: OidInt2, Len: 2},
 		{Name: "attnum", TypID: OidInt2, Len: 2},
-		{Name: "attndims", TypID: OidInt4, Len: 4}, // actually atttypmod (4) + attndims (2) but we need padding
+		{Name: "atttypmod", TypID: OidInt4, Len: 4},
+		{Name: "attndims", TypID: OidInt2, Len: 2},
 		{Name: "attbyval", TypID: OidBool, Len: 1},
 		{Name: "attalign", TypID: OidChar, Len: 1},
 	}

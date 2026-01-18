@@ -1,5 +1,7 @@
 package pgdump
 
+import "fmt"
+
 // ReadTuples extracts all visible tuples from heap file data
 func ReadTuples(data []byte, visibleOnly bool) []TupleEntry {
 	var entries []TupleEntry
@@ -25,6 +27,9 @@ func ReadRows(data []byte, columns []Column, visibleOnly bool) []map[string]inte
 	return rows
 }
 
+// Debug enables debug output for tuple decoding
+var Debug bool
+
 // DecodeTuple decodes a tuple using column schema
 func DecodeTuple(tuple *HeapTupleData, columns []Column) map[string]interface{} {
 	if tuple == nil || len(tuple.Data) == 0 {
@@ -45,14 +50,30 @@ func DecodeTuple(tuple *HeapTupleData, columns []Column) map[string]interface{} 
 		if colAlign == 0 {
 			colAlign = typeAlign(col.TypID, col.Len)
 		}
+		prevOffset := offset
 		offset = align(offset, colAlign)
 
 		if tuple.IsNull(num) {
+			if Debug {
+				fmt.Printf("DEBUG: col=%s num=%d offset=%d->%d (align=%d) NULL\n", col.Name, num, prevOffset, offset, colAlign)
+			}
 			result[col.Name] = nil
 			continue
 		}
 
 		val, consumed := readValue(tuple.Data, offset, col.TypID, col.Len)
+		if Debug {
+			dataPreview := ""
+			if offset < len(tuple.Data) {
+				end := offset + 20
+				if end > len(tuple.Data) {
+					end = len(tuple.Data)
+				}
+				dataPreview = fmt.Sprintf(" raw=%x", tuple.Data[offset:end])
+			}
+			fmt.Printf("DEBUG: col=%s num=%d offset=%d->%d (align=%d) consumed=%d val=%v%s\n", 
+				col.Name, num, prevOffset, offset, colAlign, consumed, val, dataPreview)
+		}
 		result[col.Name] = val
 		offset += consumed
 	}

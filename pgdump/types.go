@@ -497,27 +497,47 @@ func decodeInterval(data []byte) string {
 }
 
 func decodeInet(data []byte) string {
-	if len(data) < 4 {
+	if len(data) < 2 {
 		return ""
 	}
 	family := data[0]
 	bits := data[1]
-	// isCidr := data[2] != 0
-	addrLen := data[3]
 
-	if family == 2 && addrLen == 4 && len(data) >= 8 {
-		// IPv4
-		addr := fmt.Sprintf("%d.%d.%d.%d", data[4], data[5], data[6], data[7])
+	// PostgreSQL inet/cidr format varies:
+	// - Short format (6 bytes for IPv4): family, bits, addr[4]
+	// - Long format (8 bytes for IPv4): family, bits, isCidr, addrLen, addr[4]
+	
+	if family == 2 { // AF_INET (IPv4)
+		var addr string
+		if len(data) == 6 {
+			// Short format: family(1) + bits(1) + addr(4)
+			addr = fmt.Sprintf("%d.%d.%d.%d", data[2], data[3], data[4], data[5])
+		} else if len(data) >= 8 {
+			// Long format: family(1) + bits(1) + isCidr(1) + addrLen(1) + addr(4)
+			addr = fmt.Sprintf("%d.%d.%d.%d", data[4], data[5], data[6], data[7])
+		} else {
+			return fmt.Sprintf("inet:%x", data)
+		}
 		if bits != 32 {
 			return fmt.Sprintf("%s/%d", addr, bits)
 		}
 		return addr
 	}
-	if family == 3 && addrLen == 16 && len(data) >= 20 {
-		// IPv6
+	
+	if family == 3 { // AF_INET6 (IPv6)
+		var addrStart int
+		if len(data) == 18 {
+			// Short format: family(1) + bits(1) + addr(16)
+			addrStart = 2
+		} else if len(data) >= 20 {
+			// Long format: family(1) + bits(1) + isCidr(1) + addrLen(1) + addr(16)
+			addrStart = 4
+		} else {
+			return fmt.Sprintf("inet:%x", data)
+		}
 		var parts []string
 		for i := 0; i < 8; i++ {
-			parts = append(parts, fmt.Sprintf("%x", binary.BigEndian.Uint16(data[4+i*2:6+i*2])))
+			parts = append(parts, fmt.Sprintf("%x", binary.BigEndian.Uint16(data[addrStart+i*2:addrStart+i*2+2])))
 		}
 		addr := strings.Join(parts, ":")
 		if bits != 128 {
@@ -525,6 +545,7 @@ func decodeInet(data []byte) string {
 		}
 		return addr
 	}
+	
 	return fmt.Sprintf("inet:%x", data)
 }
 

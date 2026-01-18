@@ -121,7 +121,7 @@ func TestReassembleTOAST(t *testing.T) {
 func TestNewTOASTReader(t *testing.T) {
 	reader := NewTOASTReader()
 	if reader == nil {
-		t.Error("Expected non-nil reader")
+		t.Fatal("Expected non-nil reader")
 	}
 	if reader.chunks == nil {
 		t.Error("Expected initialized chunks map")

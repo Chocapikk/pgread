@@ -212,11 +212,9 @@ func TestDumpDataDir(t *testing.T) {
 			for _, row := range tbl.Rows {
 				// Look for any JSONB column (value, col_jsonb, etc.)
 				for colName, val := range row {
-					if val != nil {
-						if _, isMap := val.(map[string]interface{}); isMap {
-							t.Logf("Found JSONB in table %s, column %s", tbl.Name, colName)
-							return // Success - found at least one JSONB value
-						}
+					if _, isMap := val.(map[string]interface{}); isMap {
+						t.Logf("Found JSONB in table %s, column %s", tbl.Name, colName)
+						return // Success - found at least one JSONB value
 					}
 				}
 			}

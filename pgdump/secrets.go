@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"sync"
 
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/engine/defaults"
@@ -28,7 +27,6 @@ type SecretFinding struct {
 // SecretScanner scans for secrets using trufflehog detectors
 type SecretScanner struct {
 	detectors []detectors.Detector
-	mu        sync.Mutex
 }
 
 // NewSecretScanner creates a new scanner with all trufflehog detectors

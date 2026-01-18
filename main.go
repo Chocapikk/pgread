@@ -20,6 +20,8 @@ func main() {
 		sqlOutput, csvOutput                       bool
 		searchPattern, passwords, secrets          string
 		showDeleted, showWAL                       bool
+		showControl, verifyChecksums               bool
+		parseIndex, showDropped                    bool
 	)
 
 	flag.StringVar(&dataDir, "d", "", "PostgreSQL data directory (auto-detected if not set)")
@@ -36,6 +38,10 @@ func main() {
 	flag.StringVar(&secrets, "secrets", "", "Search for secrets/credentials (use 'auto' for common patterns)")
 	flag.BoolVar(&showDeleted, "deleted", false, "Include deleted (non-vacuumed) rows")
 	flag.BoolVar(&showWAL, "wal", false, "Show WAL (Write-Ahead Log) summary")
+	flag.BoolVar(&showControl, "control", false, "Show pg_control file information")
+	flag.BoolVar(&verifyChecksums, "checksum", false, "Verify page checksums")
+	flag.BoolVar(&parseIndex, "index", false, "Parse index file (use with -f)")
+	flag.BoolVar(&showDropped, "dropped", false, "Show dropped columns")
 	flag.BoolVar(&verbose, "v", false, "Verbose output")
 	flag.BoolVar(&debug, "debug", false, "Debug tuple decoding")
 	flag.BoolVar(&showVersion, "version", false, "Show version")
@@ -66,7 +72,11 @@ func main() {
 	}
 
 	if singleFile != "" {
-		parseSingle(singleFile)
+		if parseIndex {
+			parseIndexFile(singleFile)
+		} else {
+			parseSingle(singleFile)
+		}
 		return
 	}
 
@@ -96,6 +106,62 @@ func main() {
 		}
 		for _, db := range dbs {
 			fmt.Printf("%s (OID %d)\n", db.Name, db.OID)
+		}
+		return
+	}
+
+	// Show pg_control information
+	if showControl {
+		cf, err := pgdump.ReadControlFile(dataDir)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error reading pg_control: %v\n", err)
+			os.Exit(1)
+		}
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		enc.Encode(cf)
+		return
+	}
+
+	// Verify checksums
+	if verifyChecksums {
+		if verbose {
+			fmt.Fprintln(os.Stderr, "[*] Verifying page checksums...")
+		}
+		result, err := pgdump.VerifyDataDirChecksums(dataDir)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error verifying checksums: %v\n", err)
+			os.Exit(1)
+		}
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		enc.Encode(result)
+		if result.InvalidBlocks > 0 {
+			os.Exit(1)
+		}
+		return
+	}
+
+	// Show dropped columns
+	if showDropped {
+		if dbFilter != "" {
+			result, err := pgdump.FindDroppedColumns(dataDir, dbFilter)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			enc := json.NewEncoder(os.Stdout)
+			enc.SetIndent("", "  ")
+			enc.Encode(result)
+		} else {
+			results, err := pgdump.ScanDroppedColumns(dataDir)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			enc := json.NewEncoder(os.Stdout)
+			enc.SetIndent("", "  ")
+			enc.Encode(results)
 		}
 		return
 	}
@@ -223,6 +289,24 @@ func main() {
 	}
 }
 
+func parseIndexFile(path string) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+	
+	info, err := pgdump.ParseIndexFile(data)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error parsing index: %v\n", err)
+		os.Exit(1)
+	}
+	
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	enc.Encode(info)
+}
+
 func parseSingle(path string) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -273,10 +357,17 @@ Usage:
 Security / Forensics:
   pgread -passwords all                      Extract all password hashes
   pgread -passwords postgres                 Extract specific user's hash
-  pgread -secrets auto                       Search for common secrets (API keys, etc)
+  pgread -secrets auto                       Search for secrets (700+ patterns via Trufflehog)
   pgread -search "password|secret"           Search with custom regex
   pgread -deleted                            Include deleted (non-vacuumed) rows
   pgread -wal                                Show WAL transaction summary
+
+Low-Level / Forensics:
+  pgread -control                            Show pg_control file (version, state, LSN)
+  pgread -checksum                           Verify page checksums (detect corruption)
+  pgread -dropped                            Show dropped columns (recoverable data)
+  pgread -dropped -db mydb                   Dropped columns for specific database
+  pgread -f /path/to/index -index            Parse index file (BTree/GIN/GiST/Hash)
 
 Fixed OIDs:
   1262  pg_database  (global/1262)

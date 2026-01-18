@@ -46,6 +46,13 @@ pgread -search "password|secret"      # Search with regex
 pgread -deleted                       # Include deleted rows (forensics)
 pgread -wal                           # WAL transaction summary
 pgread -detect                        # Show detected PostgreSQL paths
+
+# Low-Level / Forensics
+pgread -control                       # pg_control file (version, state, LSN)
+pgread -checksum                      # Verify page checksums (corruption)
+pgread -dropped                       # Show dropped columns (recoverable)
+pgread -dropped -db mydb              # Dropped columns for specific DB
+pgread -f /path/to/index -index       # Parse index file (BTree/GIN/GiST/Hash)
 ```
 
 ### Password Extraction
@@ -98,6 +105,86 @@ $ pgread -wal
   "transactions": [...]
 }
 ```
+
+### pg_control Parsing
+
+```bash
+$ pgread -control
+{
+  "pg_control_version": 1300,
+  "catalog_version_no": 202307071,
+  "system_identifier": 7123456789012345678,
+  "state": 6,
+  "state_string": "IN_PRODUCTION",
+  "checkpoint_lsn": 4294967376,
+  "checkpoint_lsn_str": "0/100000050",
+  "pg_version_major": 16,
+  "data_checksums_enabled": true,
+  ...
+}
+```
+
+### Checksum Verification
+
+```bash
+$ pgread -checksum
+{
+  "data_dir": "/var/lib/postgresql/data",
+  "checksums_enabled": true,
+  "total_files": 42,
+  "total_blocks": 1024,
+  "valid_blocks": 1024,
+  "invalid_blocks": 0
+}
+```
+
+Detects page corruption before PostgreSQL does!
+
+### Index Parsing
+
+```bash
+$ pgread -f /var/lib/postgresql/data/base/16384/16385 -index
+{
+  "type": 1,
+  "type_string": "btree",
+  "total_pages": 5,
+  "root_page": 1,
+  "levels": 2,
+  "meta": {
+    "magic": 340322,
+    "version": 4,
+    "root": 1,
+    "level": 2
+  },
+  "pages": [...]
+}
+```
+
+Supports: **BTree**, **GIN**, **GiST**, **Hash**, **SP-GiST**
+
+### Dropped Columns Recovery
+
+```bash
+$ pgread -dropped
+[
+  {
+    "database": "mydb",
+    "dropped_count": 2,
+    "columns": [
+      {
+        "rel_oid": 16384,
+        "table_name": "users",
+        "attnum": 3,
+        "dropped_name": "........pg.dropped.3........",
+        "type_oid": 25,
+        "type_name": "text"
+      }
+    ]
+  }
+]
+```
+
+Recover data from columns that were `ALTER TABLE DROP COLUMN`!
 
 ### SQL/CSV Export
 
@@ -161,6 +248,24 @@ rows := pgdump.ReadRows(tableData, schema, true)
 // Raw tuple access
 tuples := pgdump.ReadTuples(data, true)
 row := pgdump.DecodeTuple(tuple, columns)
+
+// pg_control parsing
+control, _ := pgdump.ReadControlFile(dataDir)
+fmt.Printf("PG Version: %d, State: %s\n", control.PGVersionMajor, control.StateString)
+
+// Checksum verification
+result, _ := pgdump.VerifyDataDirChecksums(dataDir)
+fmt.Printf("Valid: %d, Invalid: %d\n", result.ValidBlocks, result.InvalidBlocks)
+
+// Index parsing
+indexInfo, _ := pgdump.ParseIndexFile(data)
+fmt.Printf("Type: %s, Root: %d\n", indexInfo.TypeString, indexInfo.RootPage)
+
+// Dropped columns
+dropped, _ := pgdump.FindDroppedColumns(dataDir, "mydb")
+for _, col := range dropped.Columns {
+    fmt.Printf("Dropped: %s.%d (%s)\n", col.TableName, col.AttNum, col.TypeName)
+}
 ```
 
 ## Supported Types

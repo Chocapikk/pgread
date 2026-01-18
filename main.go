@@ -16,7 +16,7 @@ func main() {
 	var (
 		dataDir, singleFile, dbFilter, tableFilter string
 		listOnly, verbose, showVersion             bool
-		detectPaths, listDBs, debug                bool
+		detectPaths, listDBs, debug, sqlOutput     bool
 	)
 
 	flag.StringVar(&dataDir, "d", "", "PostgreSQL data directory (auto-detected if not set)")
@@ -26,6 +26,7 @@ func main() {
 	flag.BoolVar(&listOnly, "list", false, "List schema only, no data")
 	flag.BoolVar(&listDBs, "list-db", false, "List databases only")
 	flag.BoolVar(&detectPaths, "detect", false, "Show detected PostgreSQL paths")
+	flag.BoolVar(&sqlOutput, "sql", false, "Output as SQL statements (CREATE TABLE + INSERT)")
 	flag.BoolVar(&verbose, "v", false, "Verbose output")
 	flag.BoolVar(&debug, "debug", false, "Debug tuple decoding")
 	flag.BoolVar(&showVersion, "version", false, "Show version")
@@ -108,10 +109,16 @@ func main() {
 		}
 	}
 
-	json.NewEncoder(os.Stdout).SetIndent("", "  ")
-	enc := json.NewEncoder(os.Stdout)
-	enc.SetIndent("", "  ")
-	enc.Encode(result)
+	if sqlOutput {
+		if err := result.ToSQL(os.Stdout); err != nil {
+			fmt.Fprintf(os.Stderr, "Error generating SQL: %v\n", err)
+			os.Exit(1)
+		}
+	} else {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		enc.Encode(result)
+	}
 }
 
 func parseSingle(path string) {
@@ -147,16 +154,18 @@ func parseSingle(path string) {
 }
 
 func usage() {
-	fmt.Fprintf(os.Stderr, `pgdump-offline - Dump PostgreSQL without credentials
+	fmt.Fprintf(os.Stderr, `pgread - Dump PostgreSQL without credentials
 
 Usage:
-  pgdump-offline                             Auto-detect and dump all
-  pgdump-offline -detect                     Show detected PostgreSQL paths
-  pgdump-offline -list-db                    List databases
-  pgdump-offline -db mydb                    Dump specific database
-  pgdump-offline -db mydb -t password        Filter tables
-  pgdump-offline -d /path/to/data/           Use specific data directory
-  pgdump-offline -f /path/to/1262            Parse single file
+  pgread                                     Auto-detect and dump all (JSON)
+  pgread -sql                                Output as SQL statements
+  pgread -sql -db mydb > backup.sql          Export database to SQL file
+  pgread -detect                             Show detected PostgreSQL paths
+  pgread -list-db                            List databases
+  pgread -db mydb                            Dump specific database
+  pgread -db mydb -t password                Filter tables
+  pgread -d /path/to/data/                   Use specific data directory
+  pgread -f /path/to/1262                    Parse single file
 
 Fixed OIDs:
   1262  pg_database  (global/1262)

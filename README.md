@@ -27,11 +27,26 @@ go install github.com/Chocapikk/pgread@latest
 ## CLI
 
 ```bash
-pgread -d /path/to/data/              # Dump all
+pgread                                # Auto-detect and dump (JSON)
+pgread -sql                           # Output as SQL statements
+pgread -sql -db mydb > backup.sql     # Export to SQL file
+pgread -d /path/to/data/              # Specify data directory
 pgread -d /path/to/data/ -db mydb     # Specific database
 pgread -d /path/to/data/ -t password  # Filter tables
 pgread -d /path/to/data/ -list        # Schema only
 pgread -f /path/to/1262               # Parse single file
+```
+
+### SQL Export
+
+Generate SQL that can be imported into PostgreSQL:
+
+```bash
+# Export entire database
+pgread -sql -db mydb > mydb_backup.sql
+
+# Import into new PostgreSQL
+psql -h newserver -U postgres -d newdb < mydb_backup.sql
 ```
 
 ## Library
@@ -55,6 +70,10 @@ result, _ := pgdump.DumpDataDir("/path/to/data", &pgdump.Options{
 pgdump.DumpDatabaseFromFiles(classData, attrData, func(fn uint32) ([]byte, error) {
     return httpClient.Get(fmt.Sprintf("/base/%d/%d", dbOID, fn))
 }, nil)
+
+// Export to SQL
+result, _ := pgdump.DumpDataDir("/path/to/data", nil)
+result.ToSQL(os.Stdout)  // or any io.Writer
 ```
 
 ### Auto-Detection

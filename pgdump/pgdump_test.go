@@ -1405,3 +1405,165 @@ func TestParsePageInvalidHeader(t *testing.T) {
 		t.Errorf("expected nil for invalid header, got %v", entries)
 	}
 }
+
+// === JSONB additional tests ===
+
+func TestDecodeJEntryTypes(t *testing.T) {
+	// JSONB entry type constants:
+	// jeString    = 0x00000000
+	// jeNumeric   = 0x10000000
+	// jeBoolFalse = 0x20000000
+	// jeBoolTrue  = 0x30000000
+	// jeNull      = 0x40000000
+	// jeContainer = 0x50000000
+
+	// Test null entry
+	nullEntry := uint32(0x40000000) // jeNull
+	got := decodeJEntry([]byte{}, 0, 0, nullEntry)
+	if got != nil {
+		t.Errorf("decodeJEntry(null) = %v, want nil", got)
+	}
+
+	// Test false entry
+	falseEntry := uint32(0x20000000) // jeBoolFalse
+	got = decodeJEntry([]byte{}, 0, 0, falseEntry)
+	if got != false {
+		t.Errorf("decodeJEntry(false) = %v, want false", got)
+	}
+
+	// Test true entry
+	trueEntry := uint32(0x30000000) // jeBoolTrue
+	got = decodeJEntry([]byte{}, 0, 0, trueEntry)
+	if got != true {
+		t.Errorf("decodeJEntry(true) = %v, want true", got)
+	}
+
+	// Test string entry (jeString = 0x00000000, so just the length)
+	stringEntry := uint32(0x00000000 | 5) // jeString, length 5
+	data := []byte("hello world")
+	got = decodeJEntry(data, 0, 5, stringEntry)
+	if got != "hello" {
+		t.Errorf("decodeJEntry(string) = %v, want 'hello'", got)
+	}
+}
+
+func TestTotalLen(t *testing.T) {
+	// Empty entries
+	if got := totalLen([]uint32{}); got != 0 {
+		t.Errorf("totalLen([]) = %d, want 0", got)
+	}
+
+	// Single entry with length
+	entries := []uint32{5} // length 5
+	if got := totalLen(entries); got != 5 {
+		t.Errorf("totalLen([5]) = %d, want 5", got)
+	}
+}
+
+func TestEntryOffLen(t *testing.T) {
+	// Simple entries without offset flag
+	entries := []uint32{3, 5, 7}
+	
+	// First entry
+	off, length := entryOffLen(entries, 0, 0)
+	if off != 0 || length != 3 {
+		t.Errorf("entryOffLen[0] = (%d, %d), want (0, 3)", off, length)
+	}
+	
+	// Second entry
+	off, length = entryOffLen(entries, 1, 0)
+	if off != 3 || length != 5 {
+		t.Errorf("entryOffLen[1] = (%d, %d), want (3, 5)", off, length)
+	}
+}
+
+// === Numeric Range tests ===
+
+func TestDecodeNumericRange(t *testing.T) {
+	tests := []struct {
+		name  string
+		flags byte
+		want  string
+	}{
+		{"inclusive bounds", 0x02 | 0x04, "[?,?]"},
+		{"exclusive bounds", 0x00, "(?,?)"},
+		{"lower inclusive", 0x02, "[?,?)"},
+		{"upper inclusive", 0x04, "(?,?]"},
+		{"lower infinite", 0x08, "(,?)"},
+		{"upper infinite", 0x10, "(?,)"},
+		{"both infinite", 0x08 | 0x10, "(,)"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := decodeNumericRange(nil, tt.flags)
+			if got != tt.want {
+				t.Errorf("decodeNumericRange(flags=%02x) = %q, want %q", tt.flags, got, tt.want)
+			}
+		})
+	}
+}
+
+// === DecodeTuple tests ===
+
+func TestDecodeTupleEmpty(t *testing.T) {
+	// nil tuple
+	if got := DecodeTuple(nil, nil); got != nil {
+		t.Errorf("DecodeTuple(nil) = %v, want nil", got)
+	}
+
+	// empty data
+	tuple := &HeapTupleData{Header: &HeapTupleHeader{}, Data: []byte{}}
+	if got := DecodeTuple(tuple, nil); got != nil {
+		t.Errorf("DecodeTuple(empty) = %v, want nil", got)
+	}
+}
+
+func TestDecodeTupleSimple(t *testing.T) {
+	// Create tuple with simple int4 column
+	tuple := &HeapTupleData{
+		Header: &HeapTupleHeader{
+			Natts:   1,
+			HasNull: false,
+		},
+		Data: []byte{0x2A, 0x00, 0x00, 0x00}, // 42
+	}
+	columns := []Column{
+		{Name: "id", TypID: OidInt4, Len: 4, Align: 'i', Num: 1},
+	}
+
+	got := DecodeTuple(tuple, columns)
+	if got == nil {
+		t.Fatal("DecodeTuple returned nil")
+	}
+	if got["id"] != int32(42) {
+		t.Errorf("got[id] = %v, want 42", got["id"])
+	}
+}
+
+func TestDecodeTupleWithNull(t *testing.T) {
+	// Create tuple with null value (bitmap indicates null)
+	tuple := &HeapTupleData{
+		Header: &HeapTupleHeader{
+			Natts:   2,
+			HasNull: true,
+		},
+		Bitmap: []byte{0x01}, // first col not null, second is null (bit 1 = 0)
+		Data:   []byte{0x2A, 0x00, 0x00, 0x00}, // only first value
+	}
+	columns := []Column{
+		{Name: "id", TypID: OidInt4, Len: 4, Align: 'i', Num: 1},
+		{Name: "name", TypID: OidText, Len: -1, Align: 'i', Num: 2},
+	}
+
+	got := DecodeTuple(tuple, columns)
+	if got == nil {
+		t.Fatal("DecodeTuple returned nil")
+	}
+	if got["id"] != int32(42) {
+		t.Errorf("got[id] = %v, want 42", got["id"])
+	}
+	if got["name"] != nil {
+		t.Errorf("got[name] = %v, want nil", got["name"])
+	}
+}

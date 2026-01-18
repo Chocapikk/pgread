@@ -429,22 +429,34 @@ jobs:
           Invoke-WebRequest -Uri $url -OutFile pg.zip
           
           Write-Host "Extracting..."
-          Expand-Archive -Path pg.zip -DestinationPath C:\
+          Expand-Archive -Path pg.zip -DestinationPath $env:GITHUB_WORKSPACE
           
-          $pgPath = "C:\pgsql\bin"
-          $pgData = "C:\pgdata"
+          $pgPath = "$env:GITHUB_WORKSPACE\pgsql\bin"
+          $pgData = "$env:GITHUB_WORKSPACE\pgdata"
+          $pgLog = "$env:GITHUB_WORKSPACE\pg.log"
           
           echo "PG_PATH=$pgPath" >> $env:GITHUB_ENV
           echo "PGDATA=$pgData" >> $env:GITHUB_ENV
           echo "$pgPath" >> $env:GITHUB_PATH
           
-          # Initialize database
-          Write-Host "Initializing database..."
-          & "$pgPath\initdb" -D $pgData -U postgres -A trust
+          # Initialize database in workspace directory (has proper permissions)
+          Write-Host "Initializing database in $pgData..."
+          & "$pgPath\initdb" -D $pgData -U postgres -A trust -E UTF8
+          
+          # Configure PostgreSQL to listen on localhost
+          Add-Content -Path "$pgData\postgresql.conf" -Value "listen_addresses = 'localhost'"
+          Add-Content -Path "$pgData\postgresql.conf" -Value "port = 5432"
           
           # Start PostgreSQL
           Write-Host "Starting PostgreSQL..."
-          & "$pgPath\pg_ctl" start -D $pgData -l C:\pg.log -w
+          & "$pgPath\pg_ctl" start -D $pgData -l $pgLog -w -t 60
+          
+          # Check log if failed
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "=== PostgreSQL log ==="
+            Get-Content $pgLog -ErrorAction SilentlyContinue
+            exit 1
+          }
           
           # Verify
           & "$pgPath\psql" -U postgres -c "SELECT version();"

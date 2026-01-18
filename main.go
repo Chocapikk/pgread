@@ -10,7 +10,6 @@ import (
 	"github.com/Chocapikk/pgdump-offline/pgdump"
 )
 
-var version = "dev"
 
 func main() {
 	var (
@@ -29,7 +28,7 @@ func main() {
 	flag.Parse()
 
 	if showVersion {
-		fmt.Printf("pgdump-offline %s\n", version)
+		fmt.Printf("pgdump-offline %s\n", pgdump.Version)
 		return
 	}
 

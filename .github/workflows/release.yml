@@ -13,27 +13,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-go@v5
         with:
           go-version: '1.22'
 
-      - name: Build binaries
-        run: |
-          VERSION=${GITHUB_REF#refs/tags/}
-          
-          GOOS=linux GOARCH=amd64 go build -ldflags "-X main.version=$VERSION" -o dist/pgdump-offline-linux-amd64 .
-          GOOS=linux GOARCH=arm64 go build -ldflags "-X main.version=$VERSION" -o dist/pgdump-offline-linux-arm64 .
-          GOOS=darwin GOARCH=amd64 go build -ldflags "-X main.version=$VERSION" -o dist/pgdump-offline-darwin-amd64 .
-          GOOS=darwin GOARCH=arm64 go build -ldflags "-X main.version=$VERSION" -o dist/pgdump-offline-darwin-arm64 .
-          GOOS=windows GOARCH=amd64 go build -ldflags "-X main.version=$VERSION" -o dist/pgdump-offline-windows-amd64.exe .
-          
-          cd dist
-          sha256sum * > checksums.txt
-
-      - name: Create Release
-        uses: softprops/action-gh-release@v1
+      - uses: goreleaser/goreleaser-action@v6
         with:
-          files: |
-            dist/*
-          generate_release_notes: true
+          version: latest
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

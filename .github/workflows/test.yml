@@ -49,6 +49,14 @@ jobs:
 
       - name: Create test data
         run: |
+          # Ensure testdb exists
+          docker exec pg psql -U postgres -c "SELECT 1 FROM pg_database WHERE datname='testdb'" | grep -q 1 || \
+            docker exec pg psql -U postgres -c "CREATE DATABASE testdb;"
+          
+          # Force checkpoint after DB creation
+          docker exec pg psql -U postgres -c "CHECKPOINT;"
+          sleep 2
+          
           docker exec pg psql -U postgres -d testdb << 'EOF'
           CREATE TABLE users (
             id SERIAL PRIMARY KEY,
@@ -86,9 +94,13 @@ jobs:
           CHECKPOINT;
           EOF
           
-          # Wait for data to be flushed to disk
-          sleep 5
+          # Force multiple checkpoints and wait for data flush
+          docker exec pg psql -U postgres -c "CHECKPOINT;"
+          sleep 2
+          docker exec pg psql -U postgres -c "CHECKPOINT;"
+          sleep 3
           docker exec pg sync
+          sleep 2
 
       - name: Copy binary to container
         run: docker cp pgdump-offline pg:/usr/local/bin/

@@ -406,12 +406,20 @@ func (c *RemoteClient) ExecPretty(args []string) string {
 			}
 			tables := c.Tables(db.OID)
 			userTables := 0
+			var tableNames []string
 			for _, t := range tables {
-				if !strings.HasPrefix(t.Name, "pg_") && !strings.HasPrefix(t.Name, "sql_") && t.Kind == "r" {
+				if !strings.HasPrefix(t.Name, "pg_") && t.Kind == "r" {
 					userTables++
+					if !strings.HasPrefix(t.Name, "sql_") {
+						tableNames = append(tableNames, t.Name)
+					}
 				}
 			}
-			b.WriteString(fmt.Sprintf("  %s (%d tables)\n", db.Name, userTables))
+			if len(tableNames) > 0 {
+				b.WriteString(fmt.Sprintf("  %s: %s\n", db.Name, strings.Join(tableNames, ", ")))
+			} else {
+				b.WriteString(fmt.Sprintf("  %s (%d tables)\n", db.Name, userTables))
+			}
 		}
 
 	case "creds", "credentials":

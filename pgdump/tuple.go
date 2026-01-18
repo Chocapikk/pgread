@@ -1,49 +1,16 @@
 package pgdump
 
-import "encoding/binary"
+const tupleHeaderSize = 23
 
-const (
-	TupleHeaderSize = 23
-	NattsMask       = 0x07FF
-)
-
-// Tuple infomask flags
-const (
-	HasNull        = 0x0001
-	HasVarwidth    = 0x0002
-	HasExternal    = 0x0004
-	XminCommitted  = 0x0100
-	XminInvalid    = 0x0200
-	XmaxCommitted  = 0x0400
-	XmaxInvalid    = 0x0800
-)
-
-// Tuple infomask2 flags
-const (
-	HotUpdated = 0x4000
-	HeapOnly   = 0x8000
-)
-
-// HeapTupleHeader represents tuple header
+// HeapTupleHeader contains tuple metadata
 type HeapTupleHeader struct {
-	TXmin        uint32
-	TXmax        uint32
-	TCid         uint32
-	TCtidBlock   uint32
-	TCtidOffset  uint16
-	TInfomask    uint16
-	TInfomask2   uint16
-	THoff        uint8
-	Natts        int
-	HasNull      bool
-	HasVarwidth  bool
-	HasExternal  bool
+	THoff         uint8
+	Natts         int
+	Infomask      uint16
 	XminCommitted bool
-	XminInvalid  bool
+	XmaxInvalid   bool
 	XmaxCommitted bool
-	XmaxInvalid  bool
-	HotUpdated   bool
-	HeapOnly     bool
+	HasNull       bool
 }
 
 // HeapTupleData represents a complete tuple
@@ -55,83 +22,57 @@ type HeapTupleData struct {
 
 // ParseHeapTuple parses a heap tuple from raw data
 func ParseHeapTuple(data []byte) *HeapTupleData {
-	if len(data) < TupleHeaderSize {
+	if len(data) < tupleHeaderSize {
 		return nil
 	}
 
-	header := parseHeader(data)
-	if int(header.THoff) > len(data) {
+	infomask := u16(data, 20)
+	infomask2 := u16(data, 18)
+	hoff := data[22]
+
+	if int(hoff) > len(data) {
 		return nil
+	}
+
+	header := &HeapTupleHeader{
+		THoff:         hoff,
+		Natts:         int(infomask2 & 0x07FF),
+		Infomask:      infomask,
+		HasNull:       infomask&0x0001 != 0,
+		XminCommitted: infomask&0x0100 != 0,
+		XmaxCommitted: infomask&0x0400 != 0,
+		XmaxInvalid:   infomask&0x0800 != 0,
 	}
 
 	tuple := &HeapTupleData{
 		Header: header,
-		Data:   data[header.THoff:],
+		Data:   data[hoff:],
 	}
 
 	if header.HasNull {
-		tuple.Bitmap = extractBitmap(data, header)
+		bitmapBytes := (header.Natts + 7) / 8
+		if len(data) >= tupleHeaderSize+bitmapBytes {
+			tuple.Bitmap = data[tupleHeaderSize : tupleHeaderSize+bitmapBytes]
+		}
 	}
 
 	return tuple
 }
 
-func parseHeader(data []byte) *HeapTupleHeader {
-	infomask := binary.LittleEndian.Uint16(data[20:22])
-	infomask2 := binary.LittleEndian.Uint16(data[18:20])
-
-	return &HeapTupleHeader{
-		TXmin:        binary.LittleEndian.Uint32(data[0:4]),
-		TXmax:        binary.LittleEndian.Uint32(data[4:8]),
-		TCid:         binary.LittleEndian.Uint32(data[8:12]),
-		TCtidBlock:   binary.LittleEndian.Uint32(data[12:16]),
-		TCtidOffset:  binary.LittleEndian.Uint16(data[16:18]),
-		TInfomask:    infomask,
-		TInfomask2:   infomask2,
-		THoff:        data[22],
-		Natts:        int(infomask2 & NattsMask),
-		HasNull:      (infomask & HasNull) != 0,
-		HasVarwidth:  (infomask & HasVarwidth) != 0,
-		HasExternal:  (infomask & HasExternal) != 0,
-		XminCommitted: (infomask & XminCommitted) != 0,
-		XminInvalid:  (infomask & XminInvalid) != 0,
-		XmaxCommitted: (infomask & XmaxCommitted) != 0,
-		XmaxInvalid:  (infomask & XmaxInvalid) != 0,
-		HotUpdated:   (infomask2 & HotUpdated) != 0,
-		HeapOnly:     (infomask2 & HeapOnly) != 0,
-	}
-}
-
-func extractBitmap(data []byte, header *HeapTupleHeader) []byte {
-	if !header.HasNull {
-		return nil
-	}
-
-	bytes := (header.Natts + 7) / 8
-	if len(data) < TupleHeaderSize+bytes {
-		return nil
-	}
-
-	return data[TupleHeaderSize : TupleHeaderSize+bytes]
-}
-
 // IsVisible checks if tuple is visible (committed and not deleted)
-func IsVisible(header *HeapTupleHeader) bool {
-	return header != nil && header.XminCommitted && (header.XmaxInvalid || !header.XmaxCommitted)
+func (t *HeapTupleData) IsVisible() bool {
+	h := t.Header
+	return h.XminCommitted && (h.XmaxInvalid || !h.XmaxCommitted)
 }
 
-// IsNull checks if attribute at attnum is null
-func IsNull(bitmap []byte, attnum int) bool {
-	if bitmap == nil || attnum <= 0 {
+// IsNull checks if attribute at position is null (1-indexed)
+func (t *HeapTupleData) IsNull(attnum int) bool {
+	if t.Bitmap == nil || attnum <= 0 {
 		return false
 	}
-
-	byteIdx := (attnum - 1) / 8
-	bitIdx := (attnum - 1) % 8
-
-	if byteIdx >= len(bitmap) {
+	byteIdx, bitIdx := (attnum-1)/8, (attnum-1)%8
+	if byteIdx >= len(t.Bitmap) {
 		return true
 	}
-
-	return (bitmap[byteIdx] & (1 << bitIdx)) == 0
+	return t.Bitmap[byteIdx]&(1<<bitIdx) == 0
 }

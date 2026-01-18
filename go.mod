@@ -1,3 +1,3 @@
-module github.com/chocapikk/pgdump-offline
+module github.com/Chocapikk/pgdump-offline
 
 go 1.22.2

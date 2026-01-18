@@ -527,16 +527,22 @@ jobs:
 
       - name: Start PostgreSQL with test data
         run: |
+          # Create data directory with proper permissions
+          mkdir -p /tmp/pgdata
+          chmod 777 /tmp/pgdata
+          
           docker run -d --name pg \
             -e POSTGRES_HOST_AUTH_METHOD=trust \
             -v /tmp/pgdata:/var/lib/postgresql/data \
             postgres:16
           
-          # Wait for ready
-          for i in {1..30}; do
+          # Wait for PostgreSQL to be fully initialized
+          echo "Waiting for PostgreSQL initialization..."
+          for i in {1..60}; do
             docker exec pg pg_isready -U postgres && break
             sleep 1
           done
+          sleep 5  # Extra wait for full initialization
           
           # Create test database with sensitive data
           docker exec pg psql -U postgres -c "CREATE DATABASE targetapp;"
@@ -561,15 +567,23 @@ jobs:
               ('stripe', '{\"api_key\": \"sk_live_abc123\"}');
           "
           
-          # Flush to disk
+          # Verify data was inserted
+          docker exec pg psql -U postgres -d targetapp -c "SELECT * FROM users;"
+          docker exec pg psql -U postgres -d targetapp -c "SELECT * FROM api_keys;"
+          
+          # Flush to disk and stop PostgreSQL
           docker exec pg psql -U postgres -c "CHECKPOINT;"
           docker stop pg
-          sleep 2
-          docker start pg
-          for i in {1..30}; do
-            docker exec pg pg_isready -U postgres && break
-            sleep 1
-          done
+          sleep 3
+          
+          # Verify files exist on host
+          echo "=== Checking PostgreSQL files on host ==="
+          ls -la /tmp/pgdata/
+          ls -la /tmp/pgdata/global/ || echo "global dir not found"
+          ls -la /tmp/pgdata/base/ || echo "base dir not found"
+          
+          # Find pg_database file
+          find /tmp/pgdata -name "1262" 2>/dev/null || echo "pg_database file not found"
 
       - name: Start vulnerable web app
         run: |

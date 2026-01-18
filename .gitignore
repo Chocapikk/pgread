@@ -1,0 +1,12 @@
+# Binaries
+pgdump-offline
+pgdump-offline.exe
+pgdump-offline-macos
+pgdump-offline-linux
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test data
+/tmp/

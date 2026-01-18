@@ -324,8 +324,7 @@ func (c *RemoteClient) Summary() *Summary {
 	return s
 }
 
-// Exec executes a command and returns the result
-// Commands: summary, creds, dbs, tables <db>, columns <db> <table>, query <db> <table>, dump
+// Exec executes a command and returns the result as any (for JSON output)
 func (c *RemoteClient) Exec(args []string) any {
 	if len(args) == 0 {
 		return c.Summary()
@@ -374,4 +373,174 @@ func (c *RemoteClient) Exec(args []string) any {
 	default:
 		return nil
 	}
+}
+
+// ExecPretty executes a command and returns a human-readable string
+func (c *RemoteClient) ExecPretty(args []string) string {
+	var b strings.Builder
+	cmd := ""
+	if len(args) > 0 {
+		cmd = args[0]
+	}
+
+	switch cmd {
+	case "", "summary":
+		b.WriteString(fmt.Sprintf("PostgreSQL %s\n\n", c.Version()))
+		if creds := c.Credentials(); len(creds) > 0 {
+			b.WriteString("CREDENTIALS\n")
+			for _, cr := range creds {
+				if cr.Password != "" {
+					role := ""
+					if cr.RolSuper {
+						role = " [superuser]"
+					}
+					b.WriteString(fmt.Sprintf("  %s%s\n    %s\n", cr.RoleName, role, cr.Password))
+				}
+			}
+			b.WriteString("\n")
+		}
+		b.WriteString("DATABASES\n")
+		for _, db := range c.Databases() {
+			if strings.HasPrefix(db.Name, "template") {
+				continue
+			}
+			tables := c.Tables(db.OID)
+			userTables := 0
+			for _, t := range tables {
+				if !strings.HasPrefix(t.Name, "pg_") && !strings.HasPrefix(t.Name, "sql_") && t.Kind == "r" {
+					userTables++
+				}
+			}
+			b.WriteString(fmt.Sprintf("  %s (%d tables)\n", db.Name, userTables))
+		}
+
+	case "creds", "credentials":
+		for _, cr := range c.Credentials() {
+			if cr.Password != "" {
+				b.WriteString(fmt.Sprintf("%s:%s\n", cr.RoleName, cr.Password))
+			}
+		}
+
+	case "dbs", "databases":
+		b.WriteString("NAME                 OID\n")
+		for _, db := range c.Databases() {
+			b.WriteString(fmt.Sprintf("%-20s %d\n", db.Name, db.OID))
+		}
+
+	case "tables":
+		if len(args) < 2 {
+			return "usage: tables <database>"
+		}
+		tables := c.TablesByName(args[1])
+		b.WriteString("NAME                           KIND   OID\n")
+		for _, t := range tables {
+			if t.Kind == "r" {
+				b.WriteString(fmt.Sprintf("%-30s table  %d\n", t.Name, t.OID))
+			}
+		}
+
+	case "columns":
+		if len(args) < 3 {
+			return "usage: columns <database> <table>"
+		}
+		db := c.Database(args[1])
+		if db == nil {
+			return "database not found"
+		}
+		table := c.Table(db.OID, args[2])
+		if table == nil {
+			return "table not found"
+		}
+		b.WriteString("NAME                 TYPE\n")
+		for _, col := range c.Columns(db.OID, table.OID) {
+			if col.Num > 0 {
+				b.WriteString(fmt.Sprintf("%-20s %s\n", col.Name, TypeName(col.TypID)))
+			}
+		}
+
+	case "query":
+		if len(args) < 3 {
+			return "usage: query <database> <table>"
+		}
+		rows := c.QueryByName(args[1], args[2], &QueryOptions{Limit: 20})
+		if len(rows) == 0 {
+			return "no data"
+		}
+		// Get columns from first row
+		var cols []string
+		for k := range rows[0] {
+			cols = append(cols, k)
+		}
+		// Header
+		for _, col := range cols {
+			b.WriteString(fmt.Sprintf("%-20s", truncate(col, 20)))
+		}
+		b.WriteString("\n")
+		// Rows
+		for _, row := range rows {
+			for _, col := range cols {
+				val := fmt.Sprintf("%v", row[col])
+				b.WriteString(fmt.Sprintf("%-20s", truncate(val, 20)))
+			}
+			b.WriteString("\n")
+		}
+
+	case "dump":
+		if len(args) >= 2 {
+			dump := c.DumpDatabaseByName(args[1])
+			if dump != nil {
+				b.WriteString(formatDump(dump))
+			}
+		} else {
+			for _, db := range c.Databases() {
+				if strings.HasPrefix(db.Name, "template") {
+					continue
+				}
+				if dump := c.DumpDatabase(db.OID); dump != nil {
+					b.WriteString(formatDump(dump))
+					b.WriteString("\n")
+				}
+			}
+		}
+
+	default:
+		return "unknown command"
+	}
+
+	return b.String()
+}
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n-2] + ".."
+}
+
+func formatDump(dump *DatabaseDump) string {
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("=== %s ===\n", dump.Name))
+	for _, t := range dump.Tables {
+		b.WriteString(fmt.Sprintf("\n[%s] %d rows\n", t.Name, len(t.Rows)))
+		if len(t.Rows) == 0 {
+			continue
+		}
+		// Get columns
+		var cols []string
+		for k := range t.Rows[0] {
+			cols = append(cols, k)
+		}
+		for _, col := range cols {
+			b.WriteString(fmt.Sprintf("%-20s", truncate(col, 20)))
+		}
+		b.WriteString("\n")
+		for _, row := range t.Rows {
+			for _, col := range cols {
+				val := fmt.Sprintf("%v", row[col])
+				b.WriteString(fmt.Sprintf("%-20s", truncate(val, 20)))
+			}
+			b.WriteString("\n")
+		}
+	}
+	return b.String()
 }

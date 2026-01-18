@@ -95,13 +95,19 @@ jobs:
           CHECKPOINT;
           EOF
           
-          # Force multiple checkpoints and wait for data flush
-          docker exec pg psql -U postgres -c "CHECKPOINT;"
+          # Stop PostgreSQL cleanly to flush all data to disk
+          docker exec pg pg_ctl stop -D /var/lib/postgresql/data -m fast
           sleep 2
-          docker exec pg psql -U postgres -c "CHECKPOINT;"
-          sleep 3
-          docker exec pg sync
-          sleep 2
+          
+          # Restart PostgreSQL
+          docker start pg
+          sleep 5
+          
+          # Wait for PostgreSQL to be ready
+          for i in {1..30}; do
+            docker exec pg pg_isready -U postgres && break
+            sleep 1
+          done
 
       - name: Copy binary to container
         run: docker cp pgdump-offline pg:/usr/local/bin/

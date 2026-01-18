@@ -51,59 +51,28 @@ jobs:
       - name: Create test data
         run: |
           # Ensure testdb exists
-          docker exec pg psql -U postgres -c "SELECT 1 FROM pg_database WHERE datname='testdb'" | grep -q 1 || \
-            docker exec pg psql -U postgres -c "CREATE DATABASE testdb;"
+          docker exec pg psql -U postgres -c "CREATE DATABASE testdb;" || true
           
-          # Force checkpoint after DB creation
+          # Create tables
+          docker exec pg psql -U postgres -d testdb -c "CREATE TABLE users (id SERIAL PRIMARY KEY, email VARCHAR(255), password_hash VARCHAR(255), is_admin BOOLEAN DEFAULT false);"
+          docker exec pg psql -U postgres -d testdb -c "INSERT INTO users (email, password_hash, is_admin) VALUES ('admin@test.com', '\$argon2id\$v=19\$m=4096,t=3,p=1\$salt\$hash', true);"
+          docker exec pg psql -U postgres -d testdb -c "INSERT INTO users (email, password_hash, is_admin) VALUES ('user1@test.com', '\$argon2id\$v=19\$m=4096,t=3,p=1\$salt\$hash2', false);"
+          docker exec pg psql -U postgres -d testdb -c "INSERT INTO users (email, password_hash, is_admin) VALUES ('user2@test.com', '\$argon2id\$v=19\$m=4096,t=3,p=1\$salt\$hash3', false);"
+          
+          docker exec pg psql -U postgres -d testdb -c "CREATE TABLE secrets (id SERIAL PRIMARY KEY, name VARCHAR(255), value JSONB);"
+          docker exec pg psql -U postgres -d testdb -c "INSERT INTO secrets (name, value) VALUES ('aws_credentials', '{\"access_key\": \"AKIAIOSFODNN7EXAMPLE\", \"secret_key\": \"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\"}');"
+          docker exec pg psql -U postgres -d testdb -c "INSERT INTO secrets (name, value) VALUES ('database_url', '{\"host\": \"db.internal\", \"port\": 5432, \"password\": \"supersecret123\"}');"
+          
+          # Verify tables were created
+          docker exec pg psql -U postgres -d testdb -c "\dt"
+          
+          # Checkpoint and stop to flush
           docker exec pg psql -U postgres -c "CHECKPOINT;"
-          sleep 2
-          
-          docker exec pg psql -U postgres -d testdb << 'EOF'
-          CREATE TABLE users (
-            id SERIAL PRIMARY KEY,
-            email VARCHAR(255),
-            password_hash VARCHAR(255),
-            is_admin BOOLEAN DEFAULT false,
-            created_at TIMESTAMP DEFAULT NOW()
-          );
-          INSERT INTO users (email, password_hash, is_admin) VALUES
-            ('admin@test.com', '$argon2id$v=19$m=4096,t=3,p=1$salt$hash', true),
-            ('user1@test.com', '$argon2id$v=19$m=4096,t=3,p=1$salt$hash2', false),
-            ('user2@test.com', '$argon2id$v=19$m=4096,t=3,p=1$salt$hash3', false);
-          
-          CREATE TABLE secrets (
-            id SERIAL PRIMARY KEY,
-            name VARCHAR(255) UNIQUE,
-            value JSONB NOT NULL,
-            created_at TIMESTAMP DEFAULT NOW()
-          );
-          INSERT INTO secrets (name, value) VALUES
-            ('aws_credentials', '{"access_key": "AKIAIOSFODNN7EXAMPLE", "secret_key": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"}'),
-            ('database_url', '{"host": "db.internal", "port": 5432, "password": "supersecret123"}'),
-            ('api_keys', '{"stripe": "sk_live_xxx", "github": "ghp_xxxx"}');
-          
-          CREATE TABLE tokens (
-            id SERIAL PRIMARY KEY,
-            user_id INTEGER REFERENCES users(id),
-            token VARCHAR(255),
-            expires_at TIMESTAMPTZ
-          );
-          INSERT INTO tokens (user_id, token, expires_at) VALUES
-            (1, 'admin_token_abc123', NOW() + INTERVAL '1 day'),
-            (2, 'user_token_def456', NOW() + INTERVAL '1 hour');
-          
-          CHECKPOINT;
-          EOF
-          
-          # Stop container cleanly to flush all data to disk
           docker stop pg
           sleep 2
-          
-          # Restart container
           docker start pg
-          sleep 3
           
-          # Wait for PostgreSQL to be ready
+          # Wait for ready
           for i in {1..30}; do
             docker exec pg pg_isready -U postgres && break
             sleep 1

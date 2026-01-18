@@ -1,5 +1,9 @@
 # pgdump-offline
 
+[![Test](https://github.com/Chocapikk/pgdump-offline/actions/workflows/test.yml/badge.svg)](https://github.com/Chocapikk/pgdump-offline/actions/workflows/test.yml)
+[![codecov](https://codecov.io/gh/Chocapikk/pgdump-offline/branch/main/graph/badge.svg)](https://codecov.io/gh/Chocapikk/pgdump-offline)
+[![Go Report Card](https://goreportcard.com/badge/github.com/Chocapikk/pgdump-offline)](https://goreportcard.com/report/github.com/Chocapikk/pgdump-offline)
+
 Dump PostgreSQL data without credentials - if you can read the files, you can dump the database.
 
 ## The Technique
@@ -68,7 +72,23 @@ row := pgdump.DecodeTuple(tuple, columns)
 
 ## Supported Types
 
-`bool` `int2` `int4` `int8` `float4` `float8` `text` `varchar` `name` `char` `oid` `bytea` `uuid` `date` `time` `timestamp` `timestamptz` `interval` `inet` `macaddr` `numeric` `jsonb` `arrays`
+**Numeric:** `bool` `int2` `int4` `int8` `float4` `float8` `numeric` `money`
+
+**Text:** `text` `varchar` `char` `bpchar` `name` `bytea`
+
+**Date/Time:** `date` `time` `timetz` `timestamp` `timestamptz` `interval`
+
+**Network:** `inet` `cidr` `macaddr` `macaddr8`
+
+**Geometric:** `point` `line` `lseg` `box` `circle` `path` `polygon`
+
+**Structured:** `json` `jsonb` `jsonpath` `xml` `uuid`
+
+**Range:** `int4range` `int8range` `numrange` `daterange` `tsrange` `tstzrange`
+
+**Text Search:** `tsvector` `tsquery`
+
+**Other:** `oid` `tid` `xid` `cid` `pg_lsn` `bit` `varbit` + **arrays of all above**
 
 ## Build
 

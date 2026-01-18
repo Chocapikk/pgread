@@ -14,7 +14,22 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.22'
-      - run: go test -v ./... -run "TestDecode|TestParseJSONB"
+      
+      - name: Run tests with coverage
+        run: go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
+      
+      - name: Display coverage
+        run: |
+          go tool cover -func=coverage.out
+          echo "=== Coverage Summary ==="
+          go tool cover -func=coverage.out | grep total
+      
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage.out
+          fail_ci_if_error: false
+          verbose: true
 
   # Linux integration tests with Docker
   integration-linux:
@@ -53,18 +68,104 @@ jobs:
           # Ensure testdb exists
           docker exec pg psql -U postgres -c "CREATE DATABASE testdb;" || true
           
-          # Create tables
+          # Create basic tables
           docker exec pg psql -U postgres -d testdb -c "CREATE TABLE users (id SERIAL PRIMARY KEY, email VARCHAR(255), password_hash VARCHAR(255), is_admin BOOLEAN DEFAULT false);"
           docker exec pg psql -U postgres -d testdb -c "INSERT INTO users (email, password_hash, is_admin) VALUES ('admin@test.com', '\$argon2id\$v=19\$m=4096,t=3,p=1\$salt\$hash', true);"
           docker exec pg psql -U postgres -d testdb -c "INSERT INTO users (email, password_hash, is_admin) VALUES ('user1@test.com', '\$argon2id\$v=19\$m=4096,t=3,p=1\$salt\$hash2', false);"
-          docker exec pg psql -U postgres -d testdb -c "INSERT INTO users (email, password_hash, is_admin) VALUES ('user2@test.com', '\$argon2id\$v=19\$m=4096,t=3,p=1\$salt\$hash3', false);"
           
           docker exec pg psql -U postgres -d testdb -c "CREATE TABLE secrets (id SERIAL PRIMARY KEY, name VARCHAR(255), value JSONB);"
           docker exec pg psql -U postgres -d testdb -c "INSERT INTO secrets (name, value) VALUES ('aws_credentials', '{\"access_key\": \"AKIAIOSFODNN7EXAMPLE\", \"secret_key\": \"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\"}');"
-          docker exec pg psql -U postgres -d testdb -c "INSERT INTO secrets (name, value) VALUES ('database_url', '{\"host\": \"db.internal\", \"port\": 5432, \"password\": \"supersecret123\"}');"
+          
+          # Create all_types table to test every PostgreSQL type
+          docker exec pg psql -U postgres -d testdb -c "
+            CREATE TABLE all_types (
+              -- Numeric types
+              col_bool BOOLEAN,
+              col_int2 SMALLINT,
+              col_int4 INTEGER,
+              col_int8 BIGINT,
+              col_float4 REAL,
+              col_float8 DOUBLE PRECISION,
+              col_numeric NUMERIC(10,2),
+              col_money MONEY,
+              -- Text types
+              col_char CHAR(10),
+              col_varchar VARCHAR(255),
+              col_text TEXT,
+              col_bytea BYTEA,
+              -- Date/Time types
+              col_date DATE,
+              col_time TIME,
+              col_timetz TIMETZ,
+              col_timestamp TIMESTAMP,
+              col_timestamptz TIMESTAMPTZ,
+              col_interval INTERVAL,
+              -- Network types
+              col_inet INET,
+              col_cidr CIDR,
+              col_macaddr MACADDR,
+              col_macaddr8 MACADDR8,
+              -- Geometric types
+              col_point POINT,
+              col_line LINE,
+              col_lseg LSEG,
+              col_box BOX,
+              col_circle CIRCLE,
+              col_path PATH,
+              col_polygon POLYGON,
+              -- Structured types
+              col_uuid UUID,
+              col_json JSON,
+              col_jsonb JSONB,
+              col_xml XML,
+              -- Bit types
+              col_bit BIT(8),
+              col_varbit VARBIT(16),
+              -- Range types
+              col_int4range INT4RANGE,
+              col_int8range INT8RANGE,
+              col_numrange NUMRANGE,
+              col_daterange DATERANGE,
+              col_tsrange TSRANGE,
+              col_tstzrange TSTZRANGE,
+              -- Array types
+              col_int_array INTEGER[],
+              col_text_array TEXT[]
+            );"
+          
+          # Insert test data for all types
+          docker exec pg psql -U postgres -d testdb -c "
+            INSERT INTO all_types VALUES (
+              -- Numeric
+              true, 42, 1337, 9223372036854775807, 3.14, 2.718281828,
+              12345.67, '\$99.99',
+              -- Text
+              'hello', 'world', 'lorem ipsum', E'\\\\xDEADBEEF',
+              -- Date/Time
+              '2025-01-18', '14:30:00', '14:30:00+02', 
+              '2025-01-18 14:30:00', '2025-01-18 14:30:00+00',
+              '1 year 2 months 3 days',
+              -- Network
+              '192.168.1.1', '10.0.0.0/8', 'aa:bb:cc:dd:ee:ff', 'aa:bb:cc:dd:ee:ff:00:11',
+              -- Geometric
+              '(1,2)', '{1,2,3}', '[(0,0),(1,1)]', '(0,0),(1,1)',
+              '<(0,0),5>', '((0,0),(1,1),(2,0))', '((0,0),(1,1),(1,0))',
+              -- Structured
+              'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
+              '{\"key\": \"value\"}', '{\"nested\": {\"secret\": \"password123\"}}',
+              '<root><item>test</item></root>',
+              -- Bit
+              B'10101010', B'1100110011',
+              -- Range
+              '[1,10)', '[100,1000)', '[1.5,2.5)', '[2025-01-01,2025-12-31)',
+              '[2025-01-01 00:00,2025-12-31 23:59)', '[2025-01-01 00:00+00,2025-12-31 23:59+00)',
+              -- Arrays
+              ARRAY[1,2,3,4,5], ARRAY['a','b','c']
+            );"
           
           # Verify tables were created
           docker exec pg psql -U postgres -d testdb -c "\dt"
+          docker exec pg psql -U postgres -d testdb -c "SELECT * FROM all_types;"
           
           # Checkpoint and stop to flush
           docker exec pg psql -U postgres -c "CHECKPOINT;"
@@ -121,13 +222,64 @@ jobs:
           docker exec pg ls -la /var/lib/postgresql/data/base/$TESTDB_OID/ | head -20
           
           echo "=== 4. Parse pg_class directly ==="
-          docker exec pg pgdump-offline -f /var/lib/postgresql/data/base/$TESTDB_OID/1259 2>&1 | grep -E "(users|secrets|Table:)" | head -20
+          docker exec pg pgdump-offline -f /var/lib/postgresql/data/base/$TESTDB_OID/1259 2>&1 | grep -E "(users|secrets|all_types|Table:)" | head -20
           
           echo "=== 5. Full dump of testdb ==="
-          docker exec pg pgdump-offline -d /var/lib/postgresql/data/ -db testdb 2>&1 | head -100
+          docker exec pg pgdump-offline -d /var/lib/postgresql/data/ -db testdb 2>&1 | head -200
           
           echo "=== 6. Verify tables exist ==="
           docker exec pg pgdump-offline -d /var/lib/postgresql/data/ -db testdb | jq '.databases[0].tables[]?.name' | head -20
+
+      - name: Verify all types parsing
+        run: |
+          echo "=== Dumping all_types table ==="
+          OUTPUT=$(docker exec pg pgdump-offline -d /var/lib/postgresql/data/ -db testdb -t all_types)
+          echo "$OUTPUT" | jq .
+          
+          echo "=== Verifying type parsing ==="
+          # Check numeric types
+          echo "$OUTPUT" | jq -e '.databases[0].tables[0].rows[0].col_bool == true' || { echo "FAIL: bool"; exit 1; }
+          echo "$OUTPUT" | jq -e '.databases[0].tables[0].rows[0].col_int2 == 42' || { echo "FAIL: int2"; exit 1; }
+          echo "$OUTPUT" | jq -e '.databases[0].tables[0].rows[0].col_int4 == 1337' || { echo "FAIL: int4"; exit 1; }
+          echo "Numeric types: OK"
+          
+          # Check text types
+          echo "$OUTPUT" | jq -e '.databases[0].tables[0].rows[0].col_text == "lorem ipsum"' || { echo "FAIL: text"; exit 1; }
+          echo "Text types: OK"
+          
+          # Check date/time (just verify not null)
+          echo "$OUTPUT" | jq -e '.databases[0].tables[0].rows[0].col_date != null' || { echo "FAIL: date"; exit 1; }
+          echo "$OUTPUT" | jq -e '.databases[0].tables[0].rows[0].col_timestamp != null' || { echo "FAIL: timestamp"; exit 1; }
+          echo "Date/Time types: OK"
+          
+          # Check network types
+          echo "$OUTPUT" | jq -e '.databases[0].tables[0].rows[0].col_inet != null' || { echo "FAIL: inet"; exit 1; }
+          echo "$OUTPUT" | jq -e '.databases[0].tables[0].rows[0].col_macaddr != null' || { echo "FAIL: macaddr"; exit 1; }
+          echo "Network types: OK"
+          
+          # Check geometric types
+          echo "$OUTPUT" | jq -e '.databases[0].tables[0].rows[0].col_point != null' || { echo "FAIL: point"; exit 1; }
+          echo "$OUTPUT" | jq -e '.databases[0].tables[0].rows[0].col_circle != null' || { echo "FAIL: circle"; exit 1; }
+          echo "Geometric types: OK"
+          
+          # Check UUID
+          echo "$OUTPUT" | jq -e '.databases[0].tables[0].rows[0].col_uuid | test("^[0-9a-f-]+$")' || { echo "FAIL: uuid"; exit 1; }
+          echo "UUID: OK"
+          
+          # Check JSONB nested parsing
+          echo "$OUTPUT" | jq -e '.databases[0].tables[0].rows[0].col_jsonb.nested.secret == "password123"' || { echo "FAIL: jsonb nested"; exit 1; }
+          echo "JSONB nested parsing: OK"
+          
+          # Check range types
+          echo "$OUTPUT" | jq -e '.databases[0].tables[0].rows[0].col_int4range != null' || { echo "FAIL: int4range"; exit 1; }
+          echo "Range types: OK"
+          
+          # Check arrays
+          echo "$OUTPUT" | jq -e '.databases[0].tables[0].rows[0].col_int_array | length > 0' || { echo "FAIL: int array"; exit 1; }
+          echo "$OUTPUT" | jq -e '.databases[0].tables[0].rows[0].col_text_array | length > 0' || { echo "FAIL: text array"; exit 1; }
+          echo "Array types: OK"
+          
+          echo "=== ALL TYPE TESTS PASSED ==="
 
       - name: Cleanup
         if: always()
@@ -170,6 +322,10 @@ jobs:
           $PG_PATH/psql -h localhost -c "INSERT INTO users (email, password_hash) VALUES ('admin@test.com', '\$argon2id\$hash');" testdb
           $PG_PATH/psql -h localhost -c "CREATE TABLE secrets (id SERIAL, name VARCHAR(255), value JSONB);" testdb
           $PG_PATH/psql -h localhost -c "INSERT INTO secrets (name, value) VALUES ('aws', '{\"key\": \"AKIA...\"}');" testdb
+          
+          # Test multiple types
+          $PG_PATH/psql -h localhost -c "CREATE TABLE type_test (col_int INTEGER, col_text TEXT, col_bool BOOLEAN, col_float DOUBLE PRECISION, col_uuid UUID, col_inet INET, col_point POINT, col_jsonb JSONB, col_date DATE, col_money MONEY);" testdb
+          $PG_PATH/psql -h localhost -c "INSERT INTO type_test VALUES (42, 'test', true, 3.14, 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', '192.168.1.1', '(1,2)', '{\"secret\": \"pass\"}', '2025-01-18', '\$99.99');" testdb
           $PG_PATH/psql -h localhost -c "CHECKPOINT;" testdb
 
       - name: Build
@@ -185,6 +341,13 @@ jobs:
           
           echo "=== Testing dump ==="
           ./pgdump-offline -db testdb -t users | jq .
+          
+          echo "=== Testing type_test table ==="
+          OUTPUT=$(./pgdump-offline -db testdb -t type_test)
+          echo "$OUTPUT" | jq .
+          echo "$OUTPUT" | jq -e '.databases[0].tables[0].rows[0].col_int == 42' || { echo "FAIL: int"; exit 1; }
+          echo "$OUTPUT" | jq -e '.databases[0].tables[0].rows[0].col_jsonb.secret == "pass"' || { echo "FAIL: jsonb"; exit 1; }
+          echo "=== macOS type tests PASSED ==="
 
   # Windows integration test  
   integration-windows:
@@ -221,6 +384,10 @@ jobs:
           & psql -U postgres -d testdb -c "INSERT INTO users (email, password_hash) VALUES ('admin@test.com', '\$argon2id\$hash');"
           & psql -U postgres -d testdb -c "CREATE TABLE secrets (id SERIAL, name VARCHAR(255), value JSONB);"
           & psql -U postgres -d testdb -c "INSERT INTO secrets (name, value) VALUES ('aws', '{\"key\": \"AKIA...\"}');"
+          
+          # Test multiple types
+          & psql -U postgres -d testdb -c "CREATE TABLE type_test (col_int INTEGER, col_text TEXT, col_bool BOOLEAN, col_float DOUBLE PRECISION, col_uuid UUID, col_inet INET, col_point POINT, col_jsonb JSONB, col_date DATE, col_money MONEY);"
+          & psql -U postgres -d testdb -c "INSERT INTO type_test VALUES (42, 'test', true, 3.14, 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', '192.168.1.1', '(1,2)', '{\"secret\": \"pass\"}', '2025-01-18', '\`$99.99');"
           & psql -U postgres -d testdb -c "CHECKPOINT;"
 
       - name: Build
@@ -237,6 +404,14 @@ jobs:
           
           Write-Host "=== Testing dump ==="
           .\pgdump-offline.exe -db testdb -t users
+          
+          Write-Host "=== Testing type_test table ==="
+          $output = .\pgdump-offline.exe -db testdb -t type_test
+          $output
+          $json = $output | ConvertFrom-Json
+          if ($json.databases[0].tables[0].rows[0].col_int -ne 42) { throw "FAIL: int" }
+          if ($json.databases[0].tables[0].rows[0].col_jsonb.secret -ne "pass") { throw "FAIL: jsonb" }
+          Write-Host "=== Windows type tests PASSED ==="
 
   build:
     runs-on: ubuntu-latest

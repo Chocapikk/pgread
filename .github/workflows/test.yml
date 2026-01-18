@@ -233,52 +233,71 @@ jobs:
       - name: Verify all types parsing
         run: |
           echo "=== Dumping all_types table ==="
-          # Run with debug - use grep -a for binary-safe text matching
-          docker exec pg pgdump-offline -d /var/lib/postgresql/data/ -db testdb -t all_types -debug 2>&1 | grep -aE "col_(bool|int2|int4|int8|float|numeric|money|char|varchar|text|bytea|inet)" | head -60
-          OUTPUT=$(docker exec pg pgdump-offline -d /var/lib/postgresql/data/ -db testdb -t all_types 2>/dev/null)
-          echo "$OUTPUT" | jq .
+          OUTPUT=$(docker exec pg pgdump-offline -d /var/lib/postgresql/data/ -db testdb -t all_types)
           
-          echo "=== Verifying type parsing ==="
-          # Check numeric types
-          echo "$OUTPUT" | jq -e '.databases[0].tables[0].rows[0].col_bool == true' || { echo "FAIL: bool"; exit 1; }
-          echo "$OUTPUT" | jq -e '.databases[0].tables[0].rows[0].col_int2 == 42' || { echo "FAIL: int2"; exit 1; }
-          echo "$OUTPUT" | jq -e '.databases[0].tables[0].rows[0].col_int4 == 1337' || { echo "FAIL: int4"; exit 1; }
+          # Show key columns for debugging
+          echo "$OUTPUT" | jq '{
+            col_bool, col_int2, col_int4, col_int8, col_float4, col_float8,
+            col_numeric, col_money, col_char, col_varchar, col_text, col_bytea,
+            col_date, col_inet, col_point, col_uuid, col_json, col_jsonb,
+            col_int4range, col_int_array, col_text_array
+          }' <<< "$(echo "$OUTPUT" | jq '.databases[0].tables[0].rows[0]')"
+          
+          echo "=== Verifying type parsing (STRICT) ==="
+          ROW='.databases[0].tables[0].rows[0]'
+          
+          # Numeric types - exact values
+          echo "$OUTPUT" | jq -e "$ROW.col_bool == true" || { echo "FAIL: col_bool != true"; exit 1; }
+          echo "$OUTPUT" | jq -e "$ROW.col_int2 == 42" || { echo "FAIL: col_int2 != 42"; exit 1; }
+          echo "$OUTPUT" | jq -e "$ROW.col_int4 == 1337" || { echo "FAIL: col_int4 != 1337"; exit 1; }
+          echo "$OUTPUT" | jq -e "$ROW.col_int8 == 9223372036854775807" || { echo "FAIL: col_int8"; exit 1; }
+          echo "$OUTPUT" | jq -e "($ROW.col_float4 | . > 3.13 and . < 3.15)" || { echo "FAIL: col_float4 != ~3.14"; exit 1; }
+          echo "$OUTPUT" | jq -e "($ROW.col_float8 | . > 2.71 and . < 2.72)" || { echo "FAIL: col_float8 != ~2.718"; exit 1; }
+          echo "$OUTPUT" | jq -e "$ROW.col_numeric == 12345.67" || { echo "FAIL: col_numeric != 12345.67"; exit 1; }
+          echo "$OUTPUT" | jq -e "$ROW.col_money == \"\$99.99\"" || { echo "FAIL: col_money != \$99.99"; exit 1; }
           echo "Numeric types: OK"
           
-          # Check text types
-          echo "$OUTPUT" | jq -e '.databases[0].tables[0].rows[0].col_text == "lorem ipsum"' || { echo "FAIL: text"; exit 1; }
+          # Text types - exact values
+          echo "$OUTPUT" | jq -e "$ROW.col_char == \"hello     \"" || { echo "FAIL: col_char != 'hello     '"; exit 1; }
+          echo "$OUTPUT" | jq -e "$ROW.col_varchar == \"world\"" || { echo "FAIL: col_varchar != 'world'"; exit 1; }
+          echo "$OUTPUT" | jq -e "$ROW.col_text == \"lorem ipsum\"" || { echo "FAIL: col_text != 'lorem ipsum'"; exit 1; }
+          echo "$OUTPUT" | jq -e "$ROW.col_bytea != null" || { echo "FAIL: col_bytea is null"; exit 1; }
           echo "Text types: OK"
           
-          # Check date/time (just verify not null)
-          echo "$OUTPUT" | jq -e '.databases[0].tables[0].rows[0].col_date != null' || { echo "FAIL: date"; exit 1; }
-          echo "$OUTPUT" | jq -e '.databases[0].tables[0].rows[0].col_timestamp != null' || { echo "FAIL: timestamp"; exit 1; }
+          # Date/time types - exact values
+          echo "$OUTPUT" | jq -e "$ROW.col_date == \"2025-01-18\"" || { echo "FAIL: col_date != 2025-01-18"; exit 1; }
+          echo "$OUTPUT" | jq -e "($ROW.col_time | startswith(\"14:30\"))" || { echo "FAIL: col_time != 14:30:xx"; exit 1; }
+          echo "$OUTPUT" | jq -e "($ROW.col_timestamp | startswith(\"2025-01-18\"))" || { echo "FAIL: col_timestamp"; exit 1; }
           echo "Date/Time types: OK"
           
-          # Check network types
-          echo "$OUTPUT" | jq -e '.databases[0].tables[0].rows[0].col_inet != null' || { echo "FAIL: inet"; exit 1; }
-          echo "$OUTPUT" | jq -e '.databases[0].tables[0].rows[0].col_macaddr != null' || { echo "FAIL: macaddr"; exit 1; }
+          # Network types - exact values
+          echo "$OUTPUT" | jq -e "($ROW.col_inet | contains(\"192.168.1.1\"))" || { echo "FAIL: col_inet != 192.168.1.1"; exit 1; }
+          echo "$OUTPUT" | jq -e "($ROW.col_cidr | contains(\"10.0.0.0\"))" || { echo "FAIL: col_cidr"; exit 1; }
+          echo "$OUTPUT" | jq -e "$ROW.col_macaddr == \"aa:bb:cc:dd:ee:ff\"" || { echo "FAIL: col_macaddr"; exit 1; }
           echo "Network types: OK"
           
-          # Check geometric types
-          echo "$OUTPUT" | jq -e '.databases[0].tables[0].rows[0].col_point != null' || { echo "FAIL: point"; exit 1; }
-          echo "$OUTPUT" | jq -e '.databases[0].tables[0].rows[0].col_circle != null' || { echo "FAIL: circle"; exit 1; }
+          # Geometric types - check structure
+          echo "$OUTPUT" | jq -e "($ROW.col_point | contains(\"1\") and contains(\"2\"))" || { echo "FAIL: col_point != (1,2)"; exit 1; }
+          echo "$OUTPUT" | jq -e "($ROW.col_circle | contains(\"5\"))" || { echo "FAIL: col_circle"; exit 1; }
           echo "Geometric types: OK"
           
-          # Check UUID
-          echo "$OUTPUT" | jq -e '.databases[0].tables[0].rows[0].col_uuid | test("^[0-9a-f-]+$")' || { echo "FAIL: uuid"; exit 1; }
+          # UUID - exact format
+          echo "$OUTPUT" | jq -e "$ROW.col_uuid | test(\"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$\")" || { echo "FAIL: col_uuid format"; exit 1; }
           echo "UUID: OK"
           
-          # Check JSONB nested parsing
-          echo "$OUTPUT" | jq -e '.databases[0].tables[0].rows[0].col_jsonb.nested.secret == "password123"' || { echo "FAIL: jsonb nested"; exit 1; }
-          echo "JSONB nested parsing: OK"
+          # JSON/JSONB - exact nested parsing
+          echo "$OUTPUT" | jq -e "$ROW.col_json.key == \"value\"" || { echo "FAIL: col_json.key != value"; exit 1; }
+          echo "$OUTPUT" | jq -e "$ROW.col_jsonb.nested.secret == \"password123\"" || { echo "FAIL: col_jsonb.nested.secret"; exit 1; }
+          echo "JSON/JSONB: OK"
           
-          # Check range types
-          echo "$OUTPUT" | jq -e '.databases[0].tables[0].rows[0].col_int4range != null' || { echo "FAIL: int4range"; exit 1; }
+          # Range types - check format
+          echo "$OUTPUT" | jq -e "($ROW.col_int4range | contains(\"1\") and contains(\"10\"))" || { echo "FAIL: col_int4range"; exit 1; }
+          echo "$OUTPUT" | jq -e "($ROW.col_daterange | contains(\"2025\"))" || { echo "FAIL: col_daterange"; exit 1; }
           echo "Range types: OK"
           
-          # Check arrays
-          echo "$OUTPUT" | jq -e '.databases[0].tables[0].rows[0].col_int_array | length > 0' || { echo "FAIL: int array"; exit 1; }
-          echo "$OUTPUT" | jq -e '.databases[0].tables[0].rows[0].col_text_array | length > 0' || { echo "FAIL: text array"; exit 1; }
+          # Arrays - check content
+          echo "$OUTPUT" | jq -e "$ROW.col_int_array == [1,2,3,4,5]" || { echo "FAIL: col_int_array != [1,2,3,4,5]"; exit 1; }
+          echo "$OUTPUT" | jq -e "$ROW.col_text_array == [\"a\",\"b\",\"c\"]" || { echo "FAIL: col_text_array"; exit 1; }
           echo "Array types: OK"
           
           echo "=== ALL TYPE TESTS PASSED ==="

@@ -45,6 +45,7 @@ pgread -secrets auto                  # Auto-detect secrets (API keys, etc)
 pgread -search "password|secret"      # Search with regex
 pgread -deleted                       # Include deleted rows (forensics)
 pgread -wal                           # WAL transaction summary
+pgread -detect                        # Show detected PostgreSQL paths
 ```
 
 ### Password Extraction
@@ -57,11 +58,45 @@ postgres:SCRAM-SHA-256$4096:salt$hash:proof [SUPERUSER] [LOGIN]
 admin:SCRAM-SHA-256$4096:salt$hash:proof [LOGIN]
 ```
 
-### Secret Detection
+### Secret Detection (Powered by Trufflehog)
+
+Uses [trufflehog](https://github.com/trufflesecurity/trufflehog)'s 700+ detectors:
 
 ```bash
 $ pgread -secrets auto
-# Automatically finds: AWS keys (AKIA...), API tokens, passwords, private keys...
+[
+  {
+    "detector": "Stripe",
+    "database": "postgres",
+    "table": "api_keys",
+    "column": "value",
+    "raw": "sk_live_51Hx...",
+    "extra_data": {
+      "rotation_guide": "https://howtorotate.com/docs/tutorials/stripe/"
+    }
+  }
+]
+```
+
+Detects: Stripe, AWS, GitHub, GitLab, Slack, SendGrid, Doppler, DigitalOcean, Heroku, and 700+ more.
+
+### WAL Analysis
+
+```bash
+$ pgread -wal
+{
+  "segment_count": 1,
+  "record_count": 24574,
+  "pg_version": "16",
+  "operations": {
+    "INSERT": 4440,
+    "DELETE": 106,
+    "UPDATE": 379,
+    "COMMIT": 738,
+    ...
+  },
+  "transactions": [...]
+}
 ```
 
 ### SQL/CSV Export

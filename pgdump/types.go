@@ -595,39 +595,41 @@ func parseArrayElements(raw []byte, off, count, elemOid, elemLen int, fixed bool
 }
 
 // ReadVarlena reads a varlena value, returning data and bytes consumed
+// PostgreSQL varlena format:
+// - Short varlena: first byte has bit0=1, length = (first_byte >> 1), includes header
+// - Long varlena: 4-byte header with bit0=0, length = (header >> 2), includes header
+// - TOAST pointer: first byte = 0x01 (external storage)
 func ReadVarlena(data []byte) ([]byte, int) {
 	if len(data) == 0 {
 		return nil, 0
 	}
 
-	// Skip padding
-	pad := 0
-	for pad < len(data) && data[pad] == 0 {
-		pad++
-	}
-	if pad >= len(data) {
-		return nil, pad
-	}
-
-	first := data[pad]
-	switch {
-	case first&1 == 0: // Long varlena
-		if len(data) < pad+4 {
-			return nil, pad
+	first := data[0]
+	
+	// Check for short varlena (1-byte header, bit 0 set but not just 0x01)
+	if first&1 == 1 && first != 1 {
+		totalLen := int(first >> 1)
+		if totalLen <= 1 || len(data) < totalLen {
+			return nil, 1
 		}
-		n := int(u32(data, pad)>>2) - 4
-		if n >= 0 && len(data) >= pad+4+n {
-			return data[pad+4 : pad+4+n], pad + 4 + n
-		}
-	case first == 1: // NULL toast
-		return nil, pad + 1
-	default: // Short varlena
-		n := int(first>>1) - 1
-		if n >= 0 && len(data) >= pad+1+n {
-			return data[pad+1 : pad+1+n], pad + 1 + n
-		}
+		return data[1:totalLen], totalLen
 	}
-	return nil, pad
+	
+	// Check for TOAST pointer (external storage, treat as null)
+	if first == 1 {
+		return nil, 1
+	}
+	
+	// Long varlena (4-byte header)
+	if len(data) < 4 {
+		return nil, 0
+	}
+	header := u32(data, 0)
+	totalLen := int(header >> 2)
+	if totalLen < 4 || len(data) < totalLen {
+		return nil, 4
+	}
+	return data[4:totalLen], totalLen
 }
 
 func safeString(data []byte) string {

@@ -769,20 +769,24 @@ func TestDecodeEmptyData(t *testing.T) {
 
 func TestReadVarlena(t *testing.T) {
 	tests := []struct {
-		name    string
-		data    []byte
-		wantLen int
+		name     string
+		data     []byte
+		wantLen  int
+		wantData string
 	}{
-		{"empty", []byte{}, 0},
-		{"short varlena", []byte{0x0d, 'h', 'e', 'l', 'l', 'o'}, 6}, // total=6, encoded as (6<<1)|1 = 0x0d
-		{"with padding", []byte{0x00, 0x00, 0x07, 'h', 'i'}, 5},     // 2 padding + header + 2 data bytes
+		{"empty", []byte{}, 0, ""},
+		{"short varlena", []byte{0x0d, 'h', 'e', 'l', 'l', 'o'}, 6, "hello"}, // total=6, (6<<1)|1 = 0x0d
+		{"long varlena", []byte{0x18, 0x00, 0x00, 0x00, 't', 'e'}, 6, "te"},  // total=6, header=0x18>>2=6
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, consumed := ReadVarlena(tt.data)
+			data, consumed := ReadVarlena(tt.data)
 			if consumed != tt.wantLen {
 				t.Errorf("ReadVarlena() consumed = %d, want %d", consumed, tt.wantLen)
+			}
+			if tt.wantData != "" && string(data) != tt.wantData {
+				t.Errorf("ReadVarlena() data = %q, want %q", string(data), tt.wantData)
 			}
 		})
 	}

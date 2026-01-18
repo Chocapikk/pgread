@@ -85,19 +85,39 @@ jobs:
           
           CHECKPOINT;
           EOF
+          
+          # Wait for data to be flushed to disk
+          sleep 5
+          docker exec pg sync
 
       - name: Copy binary to container
         run: docker cp pgdump-offline pg:/usr/local/bin/
+
+      - name: Debug PostgreSQL
+        run: |
+          echo "=== PostgreSQL data directory ==="
+          docker exec pg ls -la /var/lib/postgresql/data/
+          docker exec pg ls -la /var/lib/postgresql/data/global/ | head -10
+          docker exec pg ls -la /var/lib/postgresql/data/base/
+          
+          echo "=== PostgreSQL version ==="
+          docker exec pg psql -U postgres -c "SELECT version();"
+          
+          echo "=== Databases ==="
+          docker exec pg psql -U postgres -c "SELECT oid, datname FROM pg_database;"
 
       - name: Test pg_database parsing
         run: |
           echo "=== Testing pg_database ==="
           docker exec pg pgdump-offline -f /var/lib/postgresql/data/global/1262
+          
+          echo "=== List databases ==="
+          docker exec pg pgdump-offline -d /var/lib/postgresql/data/ -list-db
 
       - name: Test full dump
         run: |
           echo "=== Testing full dump ==="
-          docker exec pg pgdump-offline -d /var/lib/postgresql/data/ -db testdb | tee dump.json
+          docker exec pg pgdump-offline -d /var/lib/postgresql/data/ -db testdb -v 2>&1 | tee dump.json
           
           # Verify output
           cat dump.json | jq -e '.databases[0].name == "testdb"'

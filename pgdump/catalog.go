@@ -5,6 +5,7 @@ import "sort"
 // System catalog OIDs (fixed in all PostgreSQL versions)
 const (
 	PGDatabase  = 1262 // pg_database - databases (global)
+	PGAuthID    = 1260 // pg_authid - users/passwords (global)
 	PGClass     = 1259 // pg_class - tables/indexes
 	PGAttribute = 1249 // pg_attribute - table columns
 )

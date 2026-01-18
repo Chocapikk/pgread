@@ -12,3 +12,4 @@ pgdump-offline-linux
 # Test data
 /tmp/
 coverage.out
+examples/grafana-lfi-lab/exploit/exploit

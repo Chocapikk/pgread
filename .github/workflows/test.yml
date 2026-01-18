@@ -421,6 +421,22 @@ jobs:
           echo "$OUTPUT" | jq -e '.databases[0].tables[0].rows[0].col_jsonb.secret == "pass"' || { echo "FAIL: jsonb"; exit 1; }
           echo "=== macOS type tests PASSED ==="
 
+      - name: Run integration tests with coverage
+        if: matrix.pg == '16'
+        run: |
+          # Run tests with real PostgreSQL data
+          PGDUMP_TESTDATA="$PGDATA" go test -v -coverprofile=coverage-macos.out -covermode=atomic ./pgdump/...
+          
+          echo "=== macOS Coverage ==="
+          go tool cover -func=coverage-macos.out | grep total
+
+      - name: Upload macOS coverage artifact
+        if: matrix.pg == '16'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-macos
+          path: coverage-macos.out
+
   # Windows integration test - using official PostgreSQL binaries
   integration-windows:
     runs-on: windows-latest
@@ -568,6 +584,23 @@ jobs:
           if ($json.databases[0].tables[0].rows[0].col_jsonb.secret -ne "pass") { throw "FAIL: jsonb" }
           Write-Host "=== Windows type tests PASSED ==="
 
+      - name: Run integration tests with coverage
+        if: matrix.pg == '16'
+        shell: pwsh
+        run: |
+          $env:PGDUMP_TESTDATA = $env:PGDATA
+          go test -v -coverprofile=coverage-windows.out -covermode=atomic ./pgdump/...
+          
+          Write-Host "=== Windows Coverage ==="
+          go tool cover -func=coverage-windows.out | Select-String "total:"
+
+      - name: Upload Windows coverage artifact
+        if: matrix.pg == '16'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-windows
+          path: coverage-windows.out
+
   # File read exploitation lab - proves the library works for real-world scenarios
   file-read-lab:
     runs-on: ubuntu-latest
@@ -688,7 +721,7 @@ jobs:
   # Upload coverage to Codecov
   coverage:
     runs-on: ubuntu-latest
-    needs: [unit-tests, integration-linux]
+    needs: [unit-tests, integration-linux, integration-macos, integration-windows]
     steps:
       - uses: actions/checkout@v4
 
@@ -698,11 +731,25 @@ jobs:
           name: coverage-unit
           path: coverage-reports
 
-      - name: Download integration coverage
+      - name: Download Linux integration coverage
         uses: actions/download-artifact@v4
         with:
           name: coverage-integration
           path: coverage-reports
+
+      - name: Download macOS integration coverage
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-macos
+          path: coverage-reports
+        continue-on-error: true
+
+      - name: Download Windows integration coverage
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-windows
+          path: coverage-reports
+        continue-on-error: true
 
       - name: List coverage files
         run: ls -la coverage-reports/
@@ -711,7 +758,7 @@ jobs:
         uses: codecov/codecov-action@v4
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          files: ./coverage-reports/coverage.out,./coverage-reports/coverage-integration.out
+          directory: ./coverage-reports/
           fail_ci_if_error: false
           verbose: true
 

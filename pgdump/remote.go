@@ -323,3 +323,55 @@ func (c *RemoteClient) Summary() *Summary {
 
 	return s
 }
+
+// Exec executes a command and returns the result
+// Commands: summary, creds, dbs, tables <db>, columns <db> <table>, query <db> <table>, dump
+func (c *RemoteClient) Exec(args []string) any {
+	if len(args) == 0 {
+		return c.Summary()
+	}
+
+	cmd := args[0]
+	switch cmd {
+	case "summary":
+		return c.Summary()
+	case "creds", "credentials":
+		return c.Credentials()
+	case "dbs", "databases":
+		return c.Databases()
+	case "control":
+		return c.Control()
+	case "version":
+		return c.Version()
+	case "tables":
+		if len(args) < 2 {
+			return nil
+		}
+		return c.TablesByName(args[1])
+	case "columns":
+		if len(args) < 3 {
+			return nil
+		}
+		db := c.Database(args[1])
+		if db == nil {
+			return nil
+		}
+		table := c.Table(db.OID, args[2])
+		if table == nil {
+			return nil
+		}
+		return c.Columns(db.OID, table.OID)
+	case "query":
+		if len(args) < 3 {
+			return nil
+		}
+		return c.QueryByName(args[1], args[2], nil)
+	case "dump":
+		if len(args) >= 2 {
+			return c.DumpDatabaseByName(args[1])
+		}
+		return c.DumpAll()
+	default:
+		return nil
+	}
+}

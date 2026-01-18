@@ -139,7 +139,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        pg: ['14', '15', '16', '17']
+        pg: ['12', '13', '14', '15', '16', '17']
     steps:
       - uses: actions/checkout@v4
 
@@ -192,7 +192,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        pg: ['14', '15', '16', '17']
+        pg: ['12', '13', '14', '15', '16', '17']
     steps:
       - uses: actions/checkout@v4
 

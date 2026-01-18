@@ -331,7 +331,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        pg: ['12', '13', '14', '15', '16', '17']
+        pg: ['15', '16', '17']  # Only supported versions (12-14 deprecated on Homebrew)
     steps:
       - uses: actions/checkout@v4
 

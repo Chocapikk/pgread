@@ -403,14 +403,13 @@ jobs:
           echo "$OUTPUT" | jq -e '.databases[0].tables[0].rows[0].col_jsonb.secret == "pass"' || { echo "FAIL: jsonb"; exit 1; }
           echo "=== macOS type tests PASSED ==="
 
-  # Windows integration test (optional - Chocolatey PostgreSQL is unstable)
+  # Windows integration test - using official PostgreSQL binaries
   integration-windows:
     runs-on: windows-latest
-    continue-on-error: true  # Don't fail the whole build for Windows issues
     strategy:
       fail-fast: false
       matrix:
-        pg: ['15', '16']  # Only test recent stable versions
+        pg: ['15', '16']
     steps:
       - uses: actions/checkout@v4
 
@@ -418,74 +417,56 @@ jobs:
         with:
           go-version: '1.22'
 
-      - name: Install PostgreSQL ${{ matrix.pg }}
+      - name: Download PostgreSQL ${{ matrix.pg }}
         shell: pwsh
         run: |
-          # Install PostgreSQL with specific password
-          choco install postgresql${{ matrix.pg }} --params '/Password:postgres' -y --no-progress
+          # Download official PostgreSQL binaries (no installer, just zip)
+          $pgVersion = "${{ matrix.pg }}"
+          $pgFullVersion = if ($pgVersion -eq "16") { "16.6-1" } else { "15.10-1" }
+          $url = "https://get.enterprisedb.com/postgresql/postgresql-$pgFullVersion-windows-x64-binaries.zip"
           
-          # Wait for service to start
-          Start-Sleep -Seconds 15
+          Write-Host "Downloading PostgreSQL from $url"
+          Invoke-WebRequest -Uri $url -OutFile pg.zip
           
-          $pgPath = "C:\Program Files\PostgreSQL\${{ matrix.pg }}\bin"
+          Write-Host "Extracting..."
+          Expand-Archive -Path pg.zip -DestinationPath C:\
+          
+          $pgPath = "C:\pgsql\bin"
+          $pgData = "C:\pgdata"
+          
           echo "PG_PATH=$pgPath" >> $env:GITHUB_ENV
+          echo "PGDATA=$pgData" >> $env:GITHUB_ENV
           echo "$pgPath" >> $env:GITHUB_PATH
           
-          # Verify installation
-          & "$pgPath\psql" --version
+          # Initialize database
+          Write-Host "Initializing database..."
+          & "$pgPath\initdb" -D $pgData -U postgres -A trust
+          
+          # Start PostgreSQL
+          Write-Host "Starting PostgreSQL..."
+          & "$pgPath\pg_ctl" start -D $pgData -l C:\pg.log -w
+          
+          # Verify
+          & "$pgPath\psql" -U postgres -c "SELECT version();"
 
       - name: Create test data
         shell: pwsh
         run: |
-          $env:PGPASSWORD = "postgres"
-          
-          # Wait for PostgreSQL to be fully ready
-          for ($i = 0; $i -lt 30; $i++) {
-            try {
-              & "$env:PG_PATH\psql" -U postgres -c "SELECT 1;" 2>$null
-              if ($LASTEXITCODE -eq 0) { break }
-            } catch {}
-            Start-Sleep -Seconds 1
-          }
-          
           & "$env:PG_PATH\psql" -U postgres -c "CREATE DATABASE testdb;"
           & "$env:PG_PATH\psql" -U postgres -d testdb -c "CREATE TABLE users (id SERIAL, email VARCHAR(255), password_hash VARCHAR(255));"
           & "$env:PG_PATH\psql" -U postgres -d testdb -c "INSERT INTO users (email, password_hash) VALUES ('admin@test.com', 'argon2hash');"
-          & "$env:PG_PATH\psql" -U postgres -d testdb -c "CREATE TABLE secrets (id SERIAL, name VARCHAR(255), value JSONB);"
-          & "$env:PG_PATH\psql" -U postgres -d testdb -c "INSERT INTO secrets (name, value) VALUES ('aws', '{\"key\": \"AKIA\"}');"
           
           # Test multiple types
           & "$env:PG_PATH\psql" -U postgres -d testdb -c "CREATE TABLE type_test (col_int INTEGER, col_text TEXT, col_bool BOOLEAN, col_float DOUBLE PRECISION, col_uuid UUID, col_inet INET, col_point POINT, col_jsonb JSONB, col_date DATE);"
           & "$env:PG_PATH\psql" -U postgres -d testdb -c "INSERT INTO type_test VALUES (42, 'test', true, 3.14, 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', '192.168.1.1', '(1,2)', '{\"secret\": \"pass\"}', '2025-01-18');"
           
-          # Verify data in database
+          # Verify and flush
           & "$env:PG_PATH\psql" -U postgres -d testdb -c "SELECT * FROM type_test;"
-          
-          $pgData = "C:\Program Files\PostgreSQL\${{ matrix.pg }}\data"
-          echo "PGDATA=$pgData" >> $env:GITHUB_ENV
-          
-          # Checkpoint and STOP PostgreSQL completely
           & "$env:PG_PATH\psql" -U postgres -c "CHECKPOINT;"
-          Write-Host "Stopping PostgreSQL with pg_ctl..."
           
-          # Try pg_ctl first, fall back to service stop
-          try {
-            & "$env:PG_PATH\pg_ctl" stop -D "$pgData" -m fast -w
-            Write-Host "pg_ctl stop completed"
-          } catch {
-            Write-Host "pg_ctl failed, trying service stop..."
-            Stop-Service -Name "postgresql-x64-${{ matrix.pg }}" -Force
-          }
-          
-          # Wait and verify PostgreSQL is stopped
-          Start-Sleep -Seconds 5
-          $proc = Get-Process postgres* -ErrorAction SilentlyContinue
-          if ($proc) {
-            Write-Host "WARNING: PostgreSQL still running, force killing..."
-            $proc | Stop-Process -Force
-            Start-Sleep -Seconds 2
-          }
-          Write-Host "PostgreSQL stopped - data should be on disk"
+          # Stop PostgreSQL
+          & "$env:PG_PATH\pg_ctl" stop -D $env:PGDATA -m fast -w
+          Write-Host "PostgreSQL stopped"
 
       - name: Build
         run: go build -o pgdump-offline.exe .

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/Chocapikk/pgdump-offline/pgdump"
 )
@@ -15,13 +16,16 @@ func main() {
 	var (
 		dataDir, singleFile, dbFilter, tableFilter string
 		listOnly, verbose, showVersion             bool
+		detectPaths, listDBs                       bool
 	)
 
-	flag.StringVar(&dataDir, "d", "", "PostgreSQL data directory")
+	flag.StringVar(&dataDir, "d", "", "PostgreSQL data directory (auto-detected if not set)")
 	flag.StringVar(&singleFile, "f", "", "Single heap file to parse")
 	flag.StringVar(&dbFilter, "db", "", "Filter by database name")
 	flag.StringVar(&tableFilter, "t", "", "Filter tables containing string")
 	flag.BoolVar(&listOnly, "list", false, "List schema only, no data")
+	flag.BoolVar(&listDBs, "list-db", false, "List databases only")
+	flag.BoolVar(&detectPaths, "detect", false, "Show detected PostgreSQL paths")
 	flag.BoolVar(&verbose, "v", false, "Verbose output")
 	flag.BoolVar(&showVersion, "version", false, "Show version")
 	flag.Usage = usage
@@ -32,15 +36,57 @@ func main() {
 		return
 	}
 
+	if detectPaths {
+		paths := pgdump.DetectAllDataDirs()
+		if len(paths) == 0 {
+			fmt.Println("No PostgreSQL data directories found")
+			os.Exit(1)
+		}
+		fmt.Println("Detected PostgreSQL data directories:")
+		for _, p := range paths {
+			dbs := pgdump.ListDatabases(p)
+			dbNames := make([]string, 0, len(dbs))
+			for _, db := range dbs {
+				dbNames = append(dbNames, db.Name)
+			}
+			fmt.Printf("  %s (%s)\n", p, strings.Join(dbNames, ", "))
+		}
+		return
+	}
+
 	if singleFile != "" {
 		parseSingle(singleFile)
 		return
 	}
 
+	// Auto-detect if no path provided
 	if dataDir == "" {
-		fmt.Fprintln(os.Stderr, "Error: -d or -f required")
-		flag.Usage()
-		os.Exit(1)
+		dataDir = pgdump.DetectDataDir()
+		if dataDir == "" {
+			fmt.Fprintln(os.Stderr, "Error: PostgreSQL data directory not found")
+			fmt.Fprintln(os.Stderr, "")
+			fmt.Fprintln(os.Stderr, "Specify path manually:")
+			fmt.Fprintln(os.Stderr, "  pgdump-offline -d /var/lib/postgresql/data/")
+			fmt.Fprintln(os.Stderr, "")
+			fmt.Fprintln(os.Stderr, "Or set PGDATA environment variable")
+			os.Exit(1)
+		}
+		if verbose {
+			fmt.Fprintf(os.Stderr, "[*] Auto-detected: %s\n", dataDir)
+		}
+	}
+
+	// List databases only
+	if listDBs {
+		dbs := pgdump.ListDatabases(dataDir)
+		if len(dbs) == 0 {
+			fmt.Println("No databases found")
+			os.Exit(1)
+		}
+		for _, db := range dbs {
+			fmt.Printf("%s (OID %d)\n", db.Name, db.OID)
+		}
+		return
 	}
 
 	result, err := pgdump.DumpDataDir(dataDir, &pgdump.Options{
@@ -99,12 +145,15 @@ func parseSingle(path string) {
 }
 
 func usage() {
-	fmt.Fprintf(os.Stderr, `pgdump-offline - Dump PostgreSQL from leaked heap files
+	fmt.Fprintf(os.Stderr, `pgdump-offline - Dump PostgreSQL without credentials
 
 Usage:
-  pgdump-offline -d /path/to/data/           Dump all databases
-  pgdump-offline -d /path/to/data/ -db mydb  Dump specific database  
-  pgdump-offline -d /path/to/data/ -t pass   Filter tables
+  pgdump-offline                             Auto-detect and dump all
+  pgdump-offline -detect                     Show detected PostgreSQL paths
+  pgdump-offline -list-db                    List databases
+  pgdump-offline -db mydb                    Dump specific database
+  pgdump-offline -db mydb -t password        Filter tables
+  pgdump-offline -d /path/to/data/           Use specific data directory
   pgdump-offline -f /path/to/1262            Parse single file
 
 Fixed OIDs:

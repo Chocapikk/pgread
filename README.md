@@ -39,7 +39,10 @@ pgread -f /path/to/1262               # Parse single file
 ```go
 import "github.com/Chocapikk/pgread/pgdump"
 
-// Simple
+// Auto-detect and dump ALL PostgreSQL instances
+results, _ := pgdump.DumpAll(nil)
+
+// Or specify a path
 result, _ := pgdump.DumpDataDir("/var/lib/postgresql/data", nil)
 
 // With options
@@ -54,7 +57,17 @@ pgdump.DumpDatabaseFromFiles(classData, attrData, func(fn uint32) ([]byte, error
 }, nil)
 ```
 
-## Low-Level API
+### Auto-Detection
+
+```go
+// Find first PostgreSQL data directory
+dataDir := pgdump.DetectDataDir()
+
+// Find ALL PostgreSQL data directories
+dataDirs := pgdump.DetectAllDataDirs()
+```
+
+### Low-Level API
 
 ```go
 // Parse system catalogs

@@ -6,19 +6,34 @@
 //   - 1259: pg_class (base/<db_oid>/1259)
 //   - 1249: pg_attribute (base/<db_oid>/1249)
 //
-// # Quick Start
+// # Quick Start (Auto-detect)
 //
-//	result, _ := pgdump.DumpDataDir("/var/lib/postgresql/data", nil)
-//	for _, db := range result.Databases {
-//	    for _, t := range db.Tables {
-//	        fmt.Println(t.Name, t.Rows)
+//	// Dump all PostgreSQL instances found on the system
+//	results, _ := pgdump.DumpAll(nil)
+//	for _, result := range results {
+//	    for _, db := range result.Databases {
+//	        for _, t := range db.Tables {
+//	            fmt.Println(t.Name, t.Rows)
+//	        }
 //	    }
 //	}
 //
-// # Custom File Reader
+// # With Path
 //
-//	// Works with any file read primitive
-//	pgdump.DumpDatabaseFromFiles(classData, attrData, myFileReader, nil)
+//	result, _ := pgdump.DumpDataDir("/var/lib/postgresql/data", nil)
+//
+// # With Options
+//
+//	result, _ := pgdump.DumpDataDir("/path/to/data", &pgdump.Options{
+//	    DatabaseFilter: "mydb",
+//	    TableFilter:    "password",
+//	})
+//
+// # Custom File Reader (SSRF, arbitrary file read, backups)
+//
+//	pgdump.DumpDatabaseFromFiles(classData, attrData, func(fn uint32) ([]byte, error) {
+//	    return httpClient.Get(fmt.Sprintf("/base/%d/%d", dbOID, fn))
+//	}, nil)
 package pgdump
 
 import (
@@ -72,6 +87,23 @@ type ColumnInfo struct {
 
 // FileReader reads table data by filenode
 type FileReader func(filenode uint32) ([]byte, error)
+
+// DumpAll auto-detects all PostgreSQL data directories and dumps them.
+// Returns a slice of results, one per data directory found.
+func DumpAll(opts *Options) ([]*DumpResult, error) {
+	dirs := DetectAllDataDirs()
+	if len(dirs) == 0 {
+		return nil, nil
+	}
+
+	var results []*DumpResult
+	for _, dir := range dirs {
+		if result, err := DumpDataDir(dir, opts); err == nil && result != nil {
+			results = append(results, result)
+		}
+	}
+	return results, nil
+}
 
 // DumpDataDir dumps all databases from a data directory
 func DumpDataDir(dataDir string, opts *Options) (*DumpResult, error) {

@@ -31,6 +31,7 @@ go install github.com/Chocapikk/pgread@latest
 ```bash
 # Basic usage
 pgread                                # Auto-detect and dump (JSON)
+pgread -table                         # Output as psql-style table
 pgread -sql                           # Output as SQL statements
 pgread -csv                           # Output as CSV
 pgread -sql -db mydb > backup.sql     # Export to SQL file
@@ -285,6 +286,20 @@ $ pgread -f /path/to/toast_table -toast-verbose
   "max_chunks_per_value": 12,
   "chunk_distribution": {"1": 20, "2": 15, "5": 5, "12": 2}
 }
+```
+
+### Table Output (psql-style)
+
+```bash
+$ pgread -d /path/to/data -db mydb -t users -table
+
+ mydb.users (3 rows)
+ email              | password_hash                                 | is_admin
+--------------------+-----------------------------------------------+---------
+ admin@example.com  | $argon2id$v=19$m=19456,t=2,p=1$salt$hash      | true
+ alice@example.com  | $argon2id$v=19$m=19456,t=2,p=1$salt$hash      | false
+ bob@example.com    | $argon2id$v=19$m=19456,t=2,p=1$salt$hash      | false
+(3 rows)
 ```
 
 ### SQL/CSV Export

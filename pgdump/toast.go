@@ -45,35 +45,35 @@ const (
 	VarTagIndirect           = 0x01 // With high bit of size
 )
 
-// ParseTOASTPointer extracts TOAST pointer info from a varlena value
+// ParseTOASTPointer extracts TOAST pointer info from a varlena value.
+// Expected layout: [va_header=0x01 (1B)] [VARTAG (1B)] [varatt_external (16B)]
+// varatt_external: va_rawsize(4) + va_extsize(4) + va_valueid(4) + va_toastrelid(4)
 func ParseTOASTPointer(data []byte) *TOASTPointer {
 	if len(data) < 18 {
 		return nil
 	}
 
-	// Check for TOAST pointer indicator
-	tag := data[0]
-	
-	// External TOAST: first byte is 0x01 (uncompressed) or 0x02 (compressed)
-	// With 1-byte header format
-	if tag != 0x01 && tag != 0x02 && tag != 0x12 {
+	// First byte must be the external varlena header (0x01)
+	if data[0] != 0x01 {
 		return nil
 	}
 
-	// varatt_external structure starts at byte 1 (after the tag)
-	offset := 1
-	if len(data) < offset+16 {
+	// Second byte is the VARTAG: VARTAG_ONDISK = 18 (0x12)
+	vartag := data[1]
+	if vartag != 0x12 {
 		return nil
 	}
 
-	ptr := &TOASTPointer{
-		IsCompressed: tag == 0x02 || tag == 0x12,
-	}
+	// varatt_external structure starts at byte 2 (after header + VARTAG)
+	offset := 2
+
+	ptr := &TOASTPointer{}
 
 	// va_rawsize includes compression method in high 2 bits
 	rawSizeField := binary.LittleEndian.Uint32(data[offset : offset+4])
 	ptr.RawSize = rawSizeField & 0x3FFFFFFF
 	ptr.CompressionMethod = int(rawSizeField >> 30)
+	ptr.IsCompressed = (rawSizeField >> 30) != 0
 	offset += 4
 
 	// va_extsize (external/compressed size)
@@ -92,11 +92,11 @@ func ParseTOASTPointer(data []byte) *TOASTPointer {
 
 // IsTOASTPointer checks if data is a TOAST pointer
 func IsTOASTPointer(data []byte) bool {
-	if len(data) < 2 {
+	if len(data) < 18 {
 		return false
 	}
-	first := data[0]
-	return first == 0x01 || first == 0x02 || first == 0x12
+	// External varlena header (0x01) followed by VARTAG_ONDISK (0x12)
+	return data[0] == 0x01 && data[1] == 0x12
 }
 
 // ReadTOASTTable reads all chunks from a TOAST table file

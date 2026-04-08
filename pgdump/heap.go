@@ -18,9 +18,14 @@ func ReadTuples(data []byte, visibleOnly bool) []TupleEntry {
 
 // ReadRows decodes tuples using column schema
 func ReadRows(data []byte, columns []Column, visibleOnly bool) []map[string]interface{} {
+	return ReadRowsWithTOAST(data, columns, visibleOnly, nil)
+}
+
+// ReadRowsWithTOAST decodes tuples using column schema, resolving TOAST pointers.
+func ReadRowsWithTOAST(data []byte, columns []Column, visibleOnly bool, toastReader *TOASTReader) []map[string]interface{} {
 	var rows []map[string]interface{}
 	for _, t := range ReadTuples(data, visibleOnly) {
-		if row := DecodeTuple(t.Tuple, columns); row != nil {
+		if row := DecodeTupleWithTOAST(t.Tuple, columns, toastReader); row != nil {
 			rows = append(rows, row)
 		}
 	}
@@ -34,6 +39,11 @@ var DebugTable string
 
 // DecodeTuple decodes a tuple using column schema
 func DecodeTuple(tuple *HeapTupleData, columns []Column) map[string]interface{} {
+	return DecodeTupleWithTOAST(tuple, columns, nil)
+}
+
+// DecodeTupleWithTOAST decodes a tuple, resolving TOAST pointers via the reader.
+func DecodeTupleWithTOAST(tuple *HeapTupleData, columns []Column, toastReader *TOASTReader) map[string]interface{} {
 	if tuple == nil || len(tuple.Data) == 0 {
 		return nil
 	}
@@ -53,7 +63,7 @@ func DecodeTuple(tuple *HeapTupleData, columns []Column) map[string]interface{} 
 		if colAlign == 0 {
 			colAlign = typeAlign(col.TypID, col.Len)
 		}
-		
+
 		// Special handling for varlena: short varlena uses 1-byte alignment
 		if col.Len == -1 && offset < len(tuple.Data) {
 			// Try 1-byte alignment first to check for short varlena
@@ -61,7 +71,7 @@ func DecodeTuple(tuple *HeapTupleData, columns []Column) map[string]interface{} 
 				colAlign = 1
 			}
 		}
-		
+
 		prevOffset := offset
 		offset = align(offset, colAlign)
 
@@ -83,7 +93,7 @@ func DecodeTuple(tuple *HeapTupleData, columns []Column) map[string]interface{} 
 			continue
 		}
 
-		val, consumed := readValue(tuple.Data, offset, col.TypID, col.Len)
+		val, consumed := readValueWithTOAST(tuple.Data, offset, col.TypID, col.Len, toastReader)
 		if Debug {
 			dataPreview := ""
 			if offset < len(tuple.Data) {
@@ -93,7 +103,7 @@ func DecodeTuple(tuple *HeapTupleData, columns []Column) map[string]interface{} 
 				}
 				dataPreview = fmt.Sprintf(" raw=%x", tuple.Data[offset:end])
 			}
-			fmt.Printf("DEBUG: col=%s num=%d offset=%d->%d (align=%d/%c) len=%d consumed=%d val=%v%s\n", 
+			fmt.Printf("DEBUG: col=%s num=%d offset=%d->%d (align=%d/%c) len=%d consumed=%d val=%v%s\n",
 				col.Name, num, prevOffset, offset, colAlign, col.Align, col.Len, consumed, val, dataPreview)
 		}
 		result[col.Name] = val
@@ -175,6 +185,10 @@ func typeAlign(typID, length int) int {
 }
 
 func readValue(data []byte, offset, typID, length int) (interface{}, int) {
+	return readValueWithTOAST(data, offset, typID, length, nil)
+}
+
+func readValueWithTOAST(data []byte, offset, typID, length int, toastReader *TOASTReader) (interface{}, int) {
 	if offset >= len(data) {
 		return nil, 0
 	}
@@ -188,7 +202,13 @@ func readValue(data []byte, offset, typID, length int) (interface{}, int) {
 	}
 
 	if length == -1 {
-		val, consumed := ReadVarlena(remaining)
+		var val []byte
+		var consumed int
+		if toastReader != nil {
+			val, consumed = ReadVarlenaWithTOAST(remaining, toastReader)
+		} else {
+			val, consumed = ReadVarlena(remaining)
+		}
 		if val == nil {
 			return nil, max(consumed, 1)
 		}

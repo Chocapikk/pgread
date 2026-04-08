@@ -624,6 +624,10 @@ func parseArrayElements(raw []byte, off, count, elemOid, elemLen int, fixed bool
 	return elems
 }
 
+// toastPointerSize is the on-disk size of a TOAST pointer:
+// 1 byte header (0x01) + 1 byte VARTAG + 16 bytes varatt_external = 18 bytes
+const toastPointerSize = 18
+
 // ReadVarlena reads a varlena value, returning data and bytes consumed
 // PostgreSQL varlena format:
 // - Short varlena: first byte has bit0=1, length = (first_byte >> 1), includes header
@@ -635,7 +639,7 @@ func ReadVarlena(data []byte) ([]byte, int) {
 	}
 
 	first := data[0]
-	
+
 	// Check for short varlena (1-byte header, bit 0 set but not just 0x01)
 	if first&1 == 1 && first != 1 {
 		totalLen := int(first >> 1)
@@ -644,12 +648,16 @@ func ReadVarlena(data []byte) ([]byte, int) {
 		}
 		return data[1:totalLen], totalLen
 	}
-	
-	// Check for TOAST pointer (external storage, treat as null)
+
+	// Check for TOAST pointer (external storage)
+	// first byte 0x01 = VARATT_IS_EXTERNAL, followed by VARTAG + varatt_external
 	if first == 1 {
+		if len(data) >= toastPointerSize {
+			return nil, toastPointerSize
+		}
 		return nil, 1
 	}
-	
+
 	// Long varlena (4-byte header)
 	if len(data) < 4 {
 		return nil, 0
@@ -660,6 +668,34 @@ func ReadVarlena(data []byte) ([]byte, int) {
 		return nil, 4
 	}
 	return data[4:totalLen], totalLen
+}
+
+// ReadVarlenaWithTOAST reads a varlena value, resolving TOAST pointers via the reader.
+// If toastReader is nil, TOAST pointers return nil (same as ReadVarlena).
+func ReadVarlenaWithTOAST(data []byte, toastReader *TOASTReader) ([]byte, int) {
+	if len(data) == 0 {
+		return nil, 0
+	}
+
+	first := data[0]
+
+	// TOAST pointer: first byte == 0x01
+	if first == 1 {
+		if len(data) >= toastPointerSize && toastReader != nil {
+			resolved := toastReader.ReadValue(data[:toastPointerSize])
+			if resolved != nil {
+				return resolved, toastPointerSize
+			}
+		}
+		// Fall back: skip the pointer bytes
+		if len(data) >= toastPointerSize {
+			return nil, toastPointerSize
+		}
+		return nil, 1
+	}
+
+	// Delegate everything else to the standard path
+	return ReadVarlena(data)
 }
 
 func safeString(data []byte) string {

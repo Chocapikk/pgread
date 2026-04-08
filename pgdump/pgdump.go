@@ -150,6 +150,11 @@ func DumpDatabaseFromFiles(classData, attrData []byte, reader FileReader, opts *
 	tables := ParsePGClass(classData)
 	attrs := ParsePGAttribute(attrData, opts.PostgresVersion)
 
+	// Build a shared TOAST reader that lazily loads TOAST tables on demand
+	toastReader := &TOASTReader{
+		chunks: make(map[uint32][]TOASTChunk),
+	}
+
 	result := &DatabaseDump{}
 	for filenode, info := range tables {
 		if info.Kind != "r" && info.Kind != "" {
@@ -162,13 +167,13 @@ func DumpDatabaseFromFiles(classData, attrData []byte, reader FileReader, opts *
 			continue
 		}
 
-		table := dumpTable(filenode, info, attrs[info.OID], reader, opts)
+		table := dumpTable(filenode, info, attrs[info.OID], reader, opts, toastReader)
 		result.Tables = append(result.Tables, table)
 	}
 	return result, nil
 }
 
-func dumpTable(filenode uint32, info TableInfo, attrs []AttrInfo, reader FileReader, opts *Options) TableDump {
+func dumpTable(filenode uint32, info TableInfo, attrs []AttrInfo, reader FileReader, opts *Options, toastReader *TOASTReader) TableDump {
 	t := TableDump{
 		OID:      info.OID,
 		Name:     info.Name,
@@ -198,7 +203,19 @@ func dumpTable(filenode uint32, info TableInfo, attrs []AttrInfo, reader FileRea
 		cols[i] = Column{Name: a.Name, TypID: a.TypID, Len: a.Len, Num: a.Num, Align: a.Align}
 	}
 
-	t.Rows = ReadRows(data, cols, true)
+	// Load TOAST table if this table has one and a reader is available
+	var tableToastReader *TOASTReader
+	if info.ToastRelID != 0 && toastReader != nil && reader != nil {
+		// Lazily load TOAST chunks if not already cached
+		if _, loaded := toastReader.chunks[info.ToastRelID]; !loaded {
+			if toastData, err := reader(info.ToastRelID); err == nil && len(toastData) > 0 {
+				toastReader.LoadTOASTTable(info.ToastRelID, toastData)
+			}
+		}
+		tableToastReader = toastReader
+	}
+
+	t.Rows = ReadRowsWithTOAST(data, cols, true, tableToastReader)
 	t.RowCount = len(t.Rows)
 	return t
 }

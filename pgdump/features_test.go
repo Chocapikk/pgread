@@ -54,6 +54,16 @@ func TestReadRowsWithDeleted(t *testing.T) {
 // === TOAST Tests ===
 
 func TestIsTOASTPointer(t *testing.T) {
+	// Build a valid 18-byte TOAST pointer: header=0x01, VARTAG=0x12, then 16 bytes of varatt_external
+	validToast := make([]byte, 18)
+	validToast[0] = 0x01
+	validToast[1] = 0x12
+
+	// Wrong VARTAG (not 0x12)
+	wrongTag := make([]byte, 18)
+	wrongTag[0] = 0x01
+	wrongTag[1] = 0x00
+
 	tests := []struct {
 		name    string
 		data    []byte
@@ -61,9 +71,10 @@ func TestIsTOASTPointer(t *testing.T) {
 	}{
 		{"empty", []byte{}, false},
 		{"short", []byte{0x05}, false},
-		{"external", []byte{0x01, 0x00}, true},
-		{"compressed external", []byte{0x02, 0x00}, true},
-		{"normal varlena", []byte{0x05, 'h', 'i'}, false},
+		{"too short for toast", []byte{0x01, 0x12}, false},
+		{"valid external toast", validToast, true},
+		{"wrong vartag", wrongTag, false},
+		{"normal short varlena", []byte{0x05, 'h', 'i'}, false},
 	}
 
 	for _, tt := range tests {
@@ -81,12 +92,65 @@ func TestParseTOASTPointer(t *testing.T) {
 		t.Error("Expected nil for too short data")
 	}
 
-	// Valid pointer (minimal)
-	data := make([]byte, 20)
-	data[0] = 0x01 // external
+	// Wrong header byte
+	wrongHeader := make([]byte, 18)
+	wrongHeader[0] = 0x05
+	wrongHeader[1] = 0x12
+	if ptr := ParseTOASTPointer(wrongHeader); ptr != nil {
+		t.Error("Expected nil for wrong header")
+	}
+
+	// Wrong VARTAG
+	wrongTag := make([]byte, 18)
+	wrongTag[0] = 0x01
+	wrongTag[1] = 0x00
+	if ptr := ParseTOASTPointer(wrongTag); ptr != nil {
+		t.Error("Expected nil for wrong VARTAG")
+	}
+
+	// Valid pointer: header=0x01, VARTAG=0x12, varatt_external with known values
+	data := make([]byte, 18)
+	data[0] = 0x01 // external header
+	data[1] = 0x12 // VARTAG_ONDISK
+	// va_rawsize = 1024 (little-endian at offset 2)
+	data[2] = 0x00
+	data[3] = 0x04
+	data[4] = 0x00
+	data[5] = 0x00
+	// va_extsize = 512 (little-endian at offset 6)
+	data[6] = 0x00
+	data[7] = 0x02
+	data[8] = 0x00
+	data[9] = 0x00
+	// va_valueid = 42 (little-endian at offset 10)
+	data[10] = 0x2A
+	data[11] = 0x00
+	data[12] = 0x00
+	data[13] = 0x00
+	// va_toastrelid = 16389 (little-endian at offset 14)
+	data[14] = 0x05
+	data[15] = 0x40
+	data[16] = 0x00
+	data[17] = 0x00
+
 	ptr := ParseTOASTPointer(data)
 	if ptr == nil {
-		t.Error("Expected non-nil pointer")
+		t.Fatal("Expected non-nil pointer")
+	}
+	if ptr.RawSize != 1024 {
+		t.Errorf("RawSize = %d, want 1024", ptr.RawSize)
+	}
+	if ptr.ExtSize != 512 {
+		t.Errorf("ExtSize = %d, want 512", ptr.ExtSize)
+	}
+	if ptr.ValueID != 42 {
+		t.Errorf("ValueID = %d, want 42", ptr.ValueID)
+	}
+	if ptr.ToastRelID != 16389 {
+		t.Errorf("ToastRelID = %d, want 16389", ptr.ToastRelID)
+	}
+	if ptr.IsCompressed {
+		t.Error("Expected not compressed for zero compression method")
 	}
 }
 

@@ -29,6 +29,7 @@ type DatabaseInfo struct {
 type TableInfo struct {
 	OID, Filenode uint32
 	Name, Kind    string
+	ToastRelID    uint32
 }
 
 // AttrInfo represents a column attribute
@@ -112,10 +113,11 @@ func ParsePGClass(data []byte) map[uint32]TableInfo {
 	for _, row := range ReadRows(data, schemaPGClass, true) {
 		if fn := getOID(row, "relfilenode"); fn > 0 {
 			tables[fn] = TableInfo{
-				OID:      getOID(row, "oid"),
-				Name:     getString(row, "relname"),
-				Filenode: fn,
-				Kind:     getString(row, "relkind"),
+				OID:        getOID(row, "oid"),
+				Name:       getString(row, "relname"),
+				Filenode:   fn,
+				Kind:       getString(row, "relkind"),
+				ToastRelID: getOID(row, "reltoastrelid"),
 			}
 		}
 	}

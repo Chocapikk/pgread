@@ -18,7 +18,7 @@ func main() {
 		dataDir, singleFile, dbFilter, tableFilter string
 		listOnly, verbose, showVersion             bool
 		detectPaths, listDBs, debug                bool
-		sqlOutput, csvOutput                       bool
+		sqlOutput, csvOutput, tableOutput           bool
 		searchPattern, passwords, secrets          string
 		showDeleted, showWAL                       bool
 		showControl, verifyChecksums               bool
@@ -37,6 +37,7 @@ func main() {
 	flag.BoolVar(&detectPaths, "detect", false, "Show detected PostgreSQL paths")
 	flag.BoolVar(&sqlOutput, "sql", false, "Output as SQL statements")
 	flag.BoolVar(&csvOutput, "csv", false, "Output as CSV")
+	flag.BoolVar(&tableOutput, "table", false, "Output as formatted table (psql-style)")
 	flag.StringVar(&searchPattern, "search", "", "Search for pattern in all tables (regex)")
 	flag.StringVar(&passwords, "passwords", "", "Extract password hashes (use 'all' or specify user)")
 	flag.StringVar(&secrets, "secrets", "", "Search for secrets/credentials (use 'auto' for common patterns)")
@@ -369,6 +370,8 @@ func main() {
 			fmt.Fprintf(os.Stderr, "Error generating CSV: %v\n", err)
 			os.Exit(1)
 		}
+	case tableOutput:
+		result.TableFormat(os.Stdout)
 	default:
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")

@@ -57,17 +57,21 @@ func DecodeTupleWithTOAST(tuple *HeapTupleData, columns []Column, toastReader *T
 			num = idx + 1
 		}
 
-		// For varlena types, check if we have a short varlena (1-byte header)
-		// Short varlena only needs 1-byte alignment, not the standard 4-byte
+		// Determine column alignment
 		colAlign := alignFromChar(col.Align)
 		if colAlign == 0 {
 			colAlign = typeAlign(col.TypID, col.Len)
 		}
 
-		// Special handling for varlena: short varlena uses 1-byte alignment
+		// For varlena types: PostgreSQL uses 1-byte alignment for values with
+		// a 1-byte header. This includes short varlena AND TOAST pointers.
 		if col.Len == -1 && offset < len(tuple.Data) {
-			// Try 1-byte alignment first to check for short varlena
+			first := tuple.Data[offset]
 			if isShortVarlena(tuple.Data[offset:]) {
+				// Short varlena: 1-byte header with bit0=1 and first != 0x01
+				colAlign = 1
+			} else if first == 0x01 && offset+1 < len(tuple.Data) && tuple.Data[offset+1] == 0x12 {
+				// TOAST pointer: 0x01 header followed by VARTAG_ONDISK (0x12)
 				colAlign = 1
 			}
 		}

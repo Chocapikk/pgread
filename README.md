@@ -6,6 +6,8 @@
 
 Dump PostgreSQL data without credentials - if you can read the files, you can dump the database.
 
+> **Blog post:** [Dumping PostgreSQL Without Credentials: Heap File Parsing for Offensive Security](https://chocapikk.com/posts/2026/dumping-postgresql-without-credentials/)
+
 ## The Technique
 
 PostgreSQL uses **fixed OIDs** for system catalogs:
@@ -394,6 +396,18 @@ go build
 GOOS=windows go build -o pgread.exe
 GOOS=darwin GOARCH=arm64 go build -o pgread-macos
 ```
+
+## Known Limitations
+
+- **TOAST (WIP):** Very large values (>2KB) stored in TOAST tables currently show as empty. TOAST parsing infrastructure exists but is not yet integrated into the main table reading pipeline. See [#1](https://github.com/Chocapikk/pgread/issues/1).
+- **Encrypted data:** Application-level encryption is returned as-is (ciphertext). pgread extracts what PostgreSQL stores.
+- **In-flight data:** Recently written data still in shared buffers may not be on disk yet. Run `CHECKPOINT` first if possible.
+
+## Related
+
+- [Windfall](https://github.com/Chocapikk/Windfall) - Exploit toolkit using this technique for Windmill/Nextcloud Flow RCE
+- [Blog post: Dumping PostgreSQL Without Credentials](https://chocapikk.com/posts/2026/dumping-postgresql-without-credentials/)
+- [Blog post: Windfall - From Path Traversal to RCE](https://chocapikk.com/posts/2026/windfall-nextcloud-flow-windmill-rce/)
 
 ## License
 

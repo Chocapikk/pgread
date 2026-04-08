@@ -679,8 +679,8 @@ func ReadVarlenaWithTOAST(data []byte, toastReader *TOASTReader) ([]byte, int) {
 
 	first := data[0]
 
-	// TOAST pointer: first byte == 0x01
-	if first == 1 {
+	// TOAST pointer: byte 0 == 0x01 (external varlena header) && byte 1 == 0x12 (VARTAG_ONDISK)
+	if first == 0x01 && len(data) >= 2 && data[1] == 0x12 {
 		if len(data) >= toastPointerSize && toastReader != nil {
 			resolved := toastReader.ReadValue(data[:toastPointerSize])
 			if resolved != nil {

@@ -69,15 +69,15 @@ func ParseTOASTPointer(data []byte) *TOASTPointer {
 
 	ptr := &TOASTPointer{}
 
-	// va_rawsize includes compression method in high 2 bits
-	rawSizeField := binary.LittleEndian.Uint32(data[offset : offset+4])
-	ptr.RawSize = rawSizeField & 0x3FFFFFFF
-	ptr.CompressionMethod = int(rawSizeField >> 30)
-	ptr.IsCompressed = (rawSizeField >> 30) != 0
+	// va_rawsize: original data size (includes varlena header)
+	ptr.RawSize = binary.LittleEndian.Uint32(data[offset : offset+4])
 	offset += 4
 
-	// va_extsize (external/compressed size)
-	ptr.ExtSize = binary.LittleEndian.Uint32(data[offset : offset+4])
+	// va_extinfo: compression method in high 2 bits, external stored size in low 30 bits
+	extinfo := binary.LittleEndian.Uint32(data[offset : offset+4])
+	ptr.ExtSize = extinfo & 0x3FFFFFFF
+	ptr.CompressionMethod = int(extinfo >> 30)
+	ptr.IsCompressed = (extinfo >> 30) != 0
 	offset += 4
 
 	// va_valueid (chunk_id)

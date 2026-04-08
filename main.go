@@ -60,6 +60,9 @@ func main() {
 	flag.Usage = usage
 	flag.Parse()
 
+	pgdump.Debug = debug
+	pgdump.DebugTable = tableFilter
+
 	if showVersion {
 		fmt.Printf("pgdump-offline %s\n", pgdump.Version)
 		return

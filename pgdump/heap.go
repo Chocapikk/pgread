@@ -63,12 +63,13 @@ func DecodeTupleWithTOAST(tuple *HeapTupleData, columns []Column, toastReader *T
 			colAlign = typeAlign(col.TypID, col.Len)
 		}
 
-		// PostgreSQL att_align_pointer / VARATT_NOT_PAD_BYTE:
-		// If the byte at the current offset is non-zero, the varlena data
-		// starts here (short varlena, TOAST pointer, or already-aligned long
-		// varlena). Zero bytes are padding, so we align normally.
-		if col.Len == -1 && offset < len(tuple.Data) && tuple.Data[offset] != 0 {
-			colAlign = 1
+		// Short varlena and TOAST pointers use 1-byte alignment
+		if col.Len == -1 && offset < len(tuple.Data) {
+			if isShortVarlena(tuple.Data[offset:]) {
+				colAlign = 1
+			} else if tuple.Data[offset] == 0x01 && offset+1 < len(tuple.Data) && tuple.Data[offset+1] == 0x12 {
+				colAlign = 1
+			}
 		}
 
 		prevOffset := offset

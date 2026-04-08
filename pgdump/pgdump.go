@@ -37,7 +37,6 @@
 package pgdump
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -211,9 +210,8 @@ func dumpTable(filenode uint32, info TableInfo, attrs []AttrInfo, reader FileRea
 		if _, loaded := toastReader.chunks[info.ToastRelID]; !loaded {
 			if toastData, err := reader(info.ToastRelID); err == nil && len(toastData) > 0 {
 				toastReader.LoadTOASTTable(info.ToastRelID, toastData)
-				fmt.Printf("DEBUG TOAST: loaded %d chunks for table %s (toastrelid=%d)\n", len(toastReader.chunks[info.ToastRelID]), info.Name, info.ToastRelID)
 			} else {
-				fmt.Printf("DEBUG TOAST: failed to load toast table for %s (toastrelid=%d): err=%v datalen=%d\n", info.Name, info.ToastRelID, err, len(toastData))
+				_ = err
 			}
 		}
 		tableToastReader = toastReader

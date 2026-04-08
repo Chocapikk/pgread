@@ -49,50 +49,51 @@ var (
 	}
 
 	schemaPGClass = []Column{
-		{Name: "oid", TypID: OidOid, Len: 4},
-		{Name: "relname", TypID: OidName, Len: 64},
-		{Name: "relnamespace", TypID: OidOid, Len: 4},
-		{Name: "reltype", TypID: OidOid, Len: 4},
-		{Name: "reloftype", TypID: OidOid, Len: 4},
-		{Name: "relowner", TypID: OidOid, Len: 4},
-		{Name: "relam", TypID: OidOid, Len: 4},
-		{Name: "relfilenode", TypID: OidOid, Len: 4},
-		{Name: "reltablespace", TypID: OidOid, Len: 4},
-		{Name: "relpages", TypID: OidInt4, Len: 4},
-		{Name: "reltuples", TypID: OidFloat4, Len: 4},
-		{Name: "relallvisible", TypID: OidInt4, Len: 4},
-		{Name: "reltoastrelid", TypID: OidOid, Len: 4},
-		{Name: "relhasindex", TypID: OidBool, Len: 1},
-		{Name: "relisshared", TypID: OidBool, Len: 1},
-		{Name: "relpersistence", TypID: OidChar, Len: 1},
-		{Name: "relkind", TypID: OidChar, Len: 1},
+		{Name: "oid", TypID: OidOid, Len: 4, Align: 'i'},
+		{Name: "relname", TypID: OidName, Len: 64, Align: 'c'},
+		{Name: "relnamespace", TypID: OidOid, Len: 4, Align: 'i'},
+		{Name: "reltype", TypID: OidOid, Len: 4, Align: 'i'},
+		{Name: "reloftype", TypID: OidOid, Len: 4, Align: 'i'},
+		{Name: "relowner", TypID: OidOid, Len: 4, Align: 'i'},
+		{Name: "relam", TypID: OidOid, Len: 4, Align: 'i'},
+		{Name: "relfilenode", TypID: OidOid, Len: 4, Align: 'i'},
+		{Name: "reltablespace", TypID: OidOid, Len: 4, Align: 'i'},
+		{Name: "relpages", TypID: OidInt4, Len: 4, Align: 'i'},
+		{Name: "reltuples", TypID: OidFloat4, Len: 4, Align: 'i'},
+		{Name: "relallvisible", TypID: OidInt4, Len: 4, Align: 'i'},
+		{Name: "reltoastrelid", TypID: OidOid, Len: 4, Align: 'i'},
+		{Name: "relhasindex", TypID: OidBool, Len: 1, Align: 'c'},
+		{Name: "relisshared", TypID: OidBool, Len: 1, Align: 'c'},
+		{Name: "relpersistence", TypID: OidChar, Len: 1, Align: 'c'},
+		{Name: "relkind", TypID: OidChar, Len: 1, Align: 'c'},
 	}
 
 	// PostgreSQL 12-15 pg_attribute structure
+	// Align values from pg_type: oid='i', name='c', int4='i', int2='s', bool='c', char='c'
 	schemaPGAttrV15 = []Column{
-		{Name: "attrelid", TypID: OidOid, Len: 4},
-		{Name: "attname", TypID: OidName, Len: 64},
-		{Name: "atttypid", TypID: OidOid, Len: 4},
-		{Name: "attstattarget", TypID: OidInt4, Len: 4},
-		{Name: "attlen", TypID: OidInt2, Len: 2},
-		{Name: "attnum", TypID: OidInt2, Len: 2},
-		{Name: "atttypmod", TypID: OidInt4, Len: 4},
-		{Name: "attndims", TypID: OidInt2, Len: 2},
-		{Name: "attbyval", TypID: OidBool, Len: 1},
-		{Name: "attalign", TypID: OidChar, Len: 1},
+		{Name: "attrelid", TypID: OidOid, Len: 4, Align: 'i'},
+		{Name: "attname", TypID: OidName, Len: 64, Align: 'c'},
+		{Name: "atttypid", TypID: OidOid, Len: 4, Align: 'i'},
+		{Name: "attstattarget", TypID: OidInt4, Len: 4, Align: 'i'},
+		{Name: "attlen", TypID: OidInt2, Len: 2, Align: 's'},
+		{Name: "attnum", TypID: OidInt2, Len: 2, Align: 's'},
+		{Name: "atttypmod", TypID: OidInt4, Len: 4, Align: 'i'},
+		{Name: "attndims", TypID: OidInt2, Len: 2, Align: 's'},
+		{Name: "attbyval", TypID: OidBool, Len: 1, Align: 'c'},
+		{Name: "attalign", TypID: OidChar, Len: 1, Align: 'c'},
 	}
 
 	// PostgreSQL 16+ pg_attribute structure (attstattarget removed)
 	schemaPGAttrV16 = []Column{
-		{Name: "attrelid", TypID: OidOid, Len: 4},
-		{Name: "attname", TypID: OidName, Len: 64},
-		{Name: "atttypid", TypID: OidOid, Len: 4},
-		{Name: "attlen", TypID: OidInt2, Len: 2},
-		{Name: "attnum", TypID: OidInt2, Len: 2},
-		{Name: "atttypmod", TypID: OidInt4, Len: 4},
-		{Name: "attndims", TypID: OidInt2, Len: 2},
-		{Name: "attbyval", TypID: OidBool, Len: 1},
-		{Name: "attalign", TypID: OidChar, Len: 1},
+		{Name: "attrelid", TypID: OidOid, Len: 4, Align: 'i'},
+		{Name: "attname", TypID: OidName, Len: 64, Align: 'c'},
+		{Name: "atttypid", TypID: OidOid, Len: 4, Align: 'i'},
+		{Name: "attlen", TypID: OidInt2, Len: 2, Align: 's'},
+		{Name: "attnum", TypID: OidInt2, Len: 2, Align: 's'},
+		{Name: "atttypmod", TypID: OidInt4, Len: 4, Align: 'i'},
+		{Name: "attndims", TypID: OidInt2, Len: 2, Align: 's'},
+		{Name: "attbyval", TypID: OidBool, Len: 1, Align: 'c'},
+		{Name: "attalign", TypID: OidChar, Len: 1, Align: 'c'},
 	}
 )
 
@@ -136,16 +137,35 @@ func ParsePGAttribute(data []byte, pgVersion int) map[uint32][]AttrInfo {
 		}
 		
 		// Get alignment character ('c', 's', 'i', 'd')
-		var alignByte byte = 'i' // default to int alignment
-		if align := getString(row, "attalign"); len(align) > 0 {
+		attLen := toInt(row["attlen"])
+		typID := int(getOID(row, "atttypid"))
+
+		var alignByte byte
+		if align := getString(row, "attalign"); len(align) > 0 && (align[0] == 'c' || align[0] == 's' || align[0] == 'i' || align[0] == 'd') {
 			alignByte = align[0]
+		} else {
+			// Fallback: infer alignment from type length
+			switch {
+			case attLen == 1:
+				alignByte = 'c'
+			case attLen == 2:
+				alignByte = 's'
+			case attLen == 4:
+				alignByte = 'i'
+			case attLen == 8:
+				alignByte = 'd'
+			case attLen == -1:
+				alignByte = 'i' // varlena default
+			default:
+				alignByte = 'i'
+			}
 		}
-		
+
 		result[relid] = append(result[relid], AttrInfo{
 			Name:  getString(row, "attname"),
-			TypID: int(getOID(row, "atttypid")),
+			TypID: typID,
 			Num:   num,
-			Len:   toInt(row["attlen"]),
+			Len:   attLen,
 			Align: alignByte,
 		})
 	}

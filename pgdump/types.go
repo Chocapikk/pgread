@@ -584,22 +584,29 @@ func decodeArray(raw []byte, elemOid int) []interface{} {
 	}
 
 	elemLen, fixed := fixedLengths[elemOid]
-	return parseArrayElements(raw, int(dataStart), int(total), elemOid, elemLen, fixed, nullBitmap)
+	elem := arrayElemType{oid: elemOid, len: elemLen, fixed: fixed}
+	return parseArrayElements(raw, int(dataStart), int(total), elem, nullBitmap)
 }
 
-func parseArrayElements(raw []byte, off, count, elemOid, elemLen int, fixed bool, nulls []byte) []interface{} {
+type arrayElemType struct {
+	oid   int
+	len   int
+	fixed bool
+}
+
+func parseArrayElements(raw []byte, off, count int, elem arrayElemType, nulls []byte) []interface{} {
 	elems := make([]interface{}, 0, count)
 	for i := 0; i < count; i++ {
 		if nulls != nil && nulls[i/8]&(1<<(i%8)) == 0 {
 			elems = append(elems, nil)
 			continue
 		}
-		if fixed {
-			if off+elemLen > len(raw) {
+		if elem.fixed {
+			if off+elem.len > len(raw) {
 				break
 			}
-			elems = append(elems, DecodeType(raw[off:off+elemLen], elemOid))
-			off += elemLen
+			elems = append(elems, DecodeType(raw[off:off+elem.len], elem.oid))
+			off += elem.len
 		} else {
 			if i > 0 {
 				off = align(off, 4)
@@ -609,14 +616,14 @@ func parseArrayElements(raw []byte, off, count, elemOid, elemLen int, fixed bool
 			}
 			if hdr := raw[off]; hdr&1 == 1 {
 				n := int(hdr >> 1)
-				elems = append(elems, DecodeType(raw[off+1:off+n], elemOid))
+				elems = append(elems, DecodeType(raw[off+1:off+n], elem.oid))
 				off += n
 			} else {
 				if off+4 > len(raw) {
 					break
 				}
 				n := int(u32(raw, off) >> 2)
-				elems = append(elems, DecodeType(raw[off+4:off+n], elemOid))
+				elems = append(elems, DecodeType(raw[off+4:off+n], elem.oid))
 				off += n
 			}
 		}

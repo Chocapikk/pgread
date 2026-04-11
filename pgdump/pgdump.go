@@ -150,17 +150,21 @@ func DumpDatabaseFromFiles(classData, attrData []byte, reader FileReader, opts *
 	tables := ParsePGClass(classData)
 	attrs := ParsePGAttribute(attrData, opts.PostgresVersion)
 
-	// Build a shared TOAST reader that lazily loads TOAST tables on demand
-	toastReader := &TOASTReader{
-		chunks: make(map[uint32][]TOASTChunk),
-	}
-
 	// Build OID-to-filenode map for resolving TOAST table filenodes.
 	// After VACUUM FULL, the OID (reltoastrelid) stays the same but the
 	// relfilenode changes. The file on disk is named by filenode, not OID.
 	oidToFilenode := make(map[uint32]uint32)
 	for fn, ti := range tables {
 		oidToFilenode[ti.OID] = fn
+	}
+
+	ctx := &dumpContext{
+		reader: reader,
+		opts:   opts,
+		toastReader: &TOASTReader{
+			chunks: make(map[uint32][]TOASTChunk),
+		},
+		oidToFilenode: oidToFilenode,
 	}
 
 	result := &DatabaseDump{}
@@ -175,13 +179,21 @@ func DumpDatabaseFromFiles(classData, attrData []byte, reader FileReader, opts *
 			continue
 		}
 
-		table := dumpTable(filenode, info, attrs[info.OID], reader, opts, toastReader, oidToFilenode)
+		table := dumpTable(filenode, info, attrs[info.OID], ctx)
 		result.Tables = append(result.Tables, table)
 	}
 	return result, nil
 }
 
-func dumpTable(filenode uint32, info TableInfo, attrs []AttrInfo, reader FileReader, opts *Options, toastReader *TOASTReader, oidToFilenode map[uint32]uint32) TableDump {
+// dumpContext holds shared state for dumping tables within a database
+type dumpContext struct {
+	reader        FileReader
+	opts          *Options
+	toastReader   *TOASTReader
+	oidToFilenode map[uint32]uint32
+}
+
+func dumpTable(filenode uint32, info TableInfo, attrs []AttrInfo, ctx *dumpContext) TableDump {
 	t := TableDump{
 		OID:      info.OID,
 		Name:     info.Name,
@@ -197,11 +209,11 @@ func dumpTable(filenode uint32, info TableInfo, attrs []AttrInfo, reader FileRea
 		})
 	}
 
-	if opts.ListOnly || reader == nil {
+	if ctx.opts.ListOnly || ctx.reader == nil {
 		return t
 	}
 
-	data, err := reader(filenode)
+	data, err := ctx.reader(filenode)
 	if err != nil || len(data) == 0 {
 		return t
 	}
@@ -213,20 +225,17 @@ func dumpTable(filenode uint32, info TableInfo, attrs []AttrInfo, reader FileRea
 
 	// Load TOAST table if this table has one and a reader is available
 	var tableToastReader *TOASTReader
-	if info.ToastRelID != 0 && toastReader != nil && reader != nil {
-		// Lazily load TOAST chunks if not already cached
-		if _, loaded := toastReader.chunks[info.ToastRelID]; !loaded {
-			// Resolve the TOAST OID to its actual filenode on disk.
-			// After VACUUM FULL the relfilenode differs from the OID.
+	if info.ToastRelID != 0 && ctx.toastReader != nil {
+		if _, loaded := ctx.toastReader.chunks[info.ToastRelID]; !loaded {
 			toastFilenode := info.ToastRelID
-			if fn, ok := oidToFilenode[info.ToastRelID]; ok {
+			if fn, ok := ctx.oidToFilenode[info.ToastRelID]; ok {
 				toastFilenode = fn
 			}
-			if toastData, err := reader(toastFilenode); err == nil && len(toastData) > 0 {
-				toastReader.LoadTOASTTable(info.ToastRelID, toastData)
+			if toastData, err := ctx.reader(toastFilenode); err == nil && len(toastData) > 0 {
+				ctx.toastReader.LoadTOASTTable(info.ToastRelID, toastData)
 			}
 		}
-		tableToastReader = toastReader
+		tableToastReader = ctx.toastReader
 	}
 
 	t.Rows = ReadRowsWithTOAST(data, cols, true, tableToastReader)

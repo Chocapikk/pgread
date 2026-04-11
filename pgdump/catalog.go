@@ -21,8 +21,9 @@ type Column struct {
 
 // DatabaseInfo represents a database entry
 type DatabaseInfo struct {
-	OID  uint32
-	Name string
+	OID      uint32
+	Name     string
+	Encoding int
 }
 
 // TableInfo represents a table entry
@@ -46,6 +47,8 @@ var (
 	schemaPGDatabase = []Column{
 		{Name: "oid", TypID: OidOid, Len: 4},
 		{Name: "datname", TypID: OidName, Len: 64},
+		{Name: "datdba", TypID: OidOid, Len: 4},
+		{Name: "encoding", TypID: OidInt4, Len: 4},
 	}
 
 	schemaPGClass = []Column{
@@ -101,7 +104,7 @@ func ParsePGDatabase(data []byte) []DatabaseInfo {
 	var result []DatabaseInfo
 	for _, row := range ReadRows(data, schemaPGDatabase, true) {
 		if oid, name := getOID(row, "oid"), getString(row, "datname"); oid > 0 && name != "" {
-			result = append(result, DatabaseInfo{OID: oid, Name: name})
+			result = append(result, DatabaseInfo{OID: oid, Name: name, Encoding: toInt(row["encoding"])})
 		}
 	}
 	return result

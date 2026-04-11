@@ -135,7 +135,7 @@ func DumpDataDir(dataDir string, opts *Options) (*DumpResult, error) {
 			return os.ReadFile(filepath.Join(basePath, strconv.FormatUint(uint64(fn), 10)))
 		}
 
-		if dump, _ := DumpDatabaseFromFiles(classData, attrData, reader, opts); dump != nil {
+		if dump, _ := dumpDatabaseWithEncoding(classData, attrData, reader, opts, db.Encoding); dump != nil {
 			dump.OID, dump.Name = db.OID, db.Name
 			result.Databases = append(result.Databases, *dump)
 		}
@@ -143,8 +143,13 @@ func DumpDataDir(dataDir string, opts *Options) (*DumpResult, error) {
 	return result, nil
 }
 
-// DumpDatabaseFromFiles dumps using pre-read catalog files and custom reader
+// DumpDatabaseFromFiles dumps using pre-read catalog files and custom reader.
+// Assumes UTF-8 encoding. Use DumpDataDir for automatic encoding detection.
 func DumpDatabaseFromFiles(classData, attrData []byte, reader FileReader, opts *Options) (*DatabaseDump, error) {
+	return dumpDatabaseWithEncoding(classData, attrData, reader, opts, PGEncUTF8)
+}
+
+func dumpDatabaseWithEncoding(classData, attrData []byte, reader FileReader, opts *Options, enc int) (*DatabaseDump, error) {
 	opts = withDefaults(opts)
 
 	tables := ParsePGClass(classData)
@@ -165,6 +170,7 @@ func DumpDatabaseFromFiles(classData, attrData []byte, reader FileReader, opts *
 			chunks: make(map[uint32][]TOASTChunk),
 		},
 		oidToFilenode: oidToFilenode,
+		encoding:      enc,
 	}
 
 	result := &DatabaseDump{}
@@ -191,6 +197,7 @@ type dumpContext struct {
 	opts          *Options
 	toastReader   *TOASTReader
 	oidToFilenode map[uint32]uint32
+	encoding      int
 }
 
 func dumpTable(filenode uint32, info TableInfo, attrs []AttrInfo, ctx *dumpContext) TableDump {
@@ -239,6 +246,15 @@ func dumpTable(filenode uint32, info TableInfo, attrs []AttrInfo, ctx *dumpConte
 	}
 
 	t.Rows = ReadRowsWithTOAST(data, cols, true, tableToastReader)
+	if ctx.encoding != PGEncUTF8 && ctx.encoding != PGEncSQLASCII {
+		for i, row := range t.Rows {
+			for k, v := range row {
+				if s, ok := v.(string); ok {
+					t.Rows[i][k] = ConvertToUTF8(s, ctx.encoding)
+				}
+			}
+		}
+	}
 	t.RowCount = len(t.Rows)
 	return t
 }

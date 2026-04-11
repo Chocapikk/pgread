@@ -2,6 +2,7 @@ package pgdump
 
 import (
 	"encoding/binary"
+	"strings"
 )
 
 // Binary reading helpers - DRY utilities for all parsers
@@ -49,6 +50,19 @@ func cstring(data []byte, maxLen int) string {
 		return string(data[:maxLen])
 	}
 	return string(data)
+}
+
+func isTemplateDB(name string) bool {
+	return strings.HasPrefix(name, "template")
+}
+
+func FindDatabaseOID(dbData []byte, dbName string) uint32 {
+	for _, db := range ParsePGDatabase(dbData) {
+		if db.Name == dbName {
+			return db.OID
+		}
+	}
+	return 0
 }
 
 // toInt converts various numeric types to int

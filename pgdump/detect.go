@@ -195,8 +195,8 @@ func ListDatabases(dataDir string) []DatabaseInfo {
 	
 	// Sort by name, templates last
 	sort.Slice(dbs, func(i, j int) bool {
-		iTemplate := strings.HasPrefix(dbs[i].Name, "template")
-		jTemplate := strings.HasPrefix(dbs[j].Name, "template")
+		iTemplate := isTemplateDB(dbs[i].Name)
+		jTemplate := isTemplateDB(dbs[j].Name)
 		if iTemplate != jTemplate {
 			return !iTemplate
 		}

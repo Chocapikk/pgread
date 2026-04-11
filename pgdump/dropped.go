@@ -7,7 +7,6 @@ import (
 	"regexp"
 	"sort"
 	"strconv"
-	"strings"
 )
 
 // DroppedColumnInfo contains information about a dropped column
@@ -94,19 +93,13 @@ func FindDroppedColumns(dataDir, dbName string) (*DroppedColumnsResult, error) {
 		return nil, fmt.Errorf("cannot read pg_database: %w", err)
 	}
 	
-	var dbOID uint32
-	for _, db := range ParsePGDatabase(dbData) {
-		if db.Name == dbName {
-			dbOID = db.OID
-			break
-		}
-	}
+	dbOID := FindDatabaseOID(dbData, dbName)
 	if dbOID == 0 {
 		return nil, fmt.Errorf("database %q not found", dbName)
 	}
-	
+
 	basePath := filepath.Join(dataDir, "base", strconv.FormatUint(uint64(dbOID), 10))
-	
+
 	// Read pg_attribute
 	attrData, err := os.ReadFile(filepath.Join(basePath, "1249"))
 	if err != nil {
@@ -210,19 +203,13 @@ func RecoverDroppedColumnData(dataDir, dbName, tableName string, attNum int) (*D
 		return nil, err
 	}
 	
-	var dbOID uint32
-	for _, db := range ParsePGDatabase(dbData) {
-		if db.Name == dbName {
-			dbOID = db.OID
-			break
-		}
-	}
+	dbOID := FindDatabaseOID(dbData, dbName)
 	if dbOID == 0 {
 		return nil, fmt.Errorf("database %q not found", dbName)
 	}
-	
+
 	basePath := filepath.Join(dataDir, "base", strconv.FormatUint(uint64(dbOID), 10))
-	
+
 	// Find table filenode
 	classData, err := os.ReadFile(filepath.Join(basePath, "1259"))
 	if err != nil {
@@ -386,7 +373,7 @@ func ScanDroppedColumns(dataDir string) ([]DroppedColumnsResult, error) {
 	}
 	
 	for _, db := range ParsePGDatabase(dbData) {
-		if strings.HasPrefix(db.Name, "template") {
+		if isTemplateDB(db.Name) {
 			continue
 		}
 		
@@ -410,19 +397,13 @@ func GetDroppedColumnSchema(dataDir, dbName, tableName string) ([]Column, error)
 		return nil, err
 	}
 	
-	var dbOID uint32
-	for _, db := range ParsePGDatabase(dbData) {
-		if db.Name == dbName {
-			dbOID = db.OID
-			break
-		}
-	}
+	dbOID := FindDatabaseOID(dbData, dbName)
 	if dbOID == 0 {
 		return nil, fmt.Errorf("database %q not found", dbName)
 	}
-	
+
 	basePath := filepath.Join(dataDir, "base", strconv.FormatUint(uint64(dbOID), 10))
-	
+
 	classData, err := os.ReadFile(filepath.Join(basePath, "1259"))
 	if err != nil {
 		return nil, err

@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 )
 
 // SequenceMagic is the magic number for sequence pages
@@ -214,13 +213,7 @@ func FindSequences(dataDir, dbName string) ([]SequenceData, error) {
 		return nil, err
 	}
 
-	var dbOID uint32
-	for _, db := range ParsePGDatabase(dbData) {
-		if db.Name == dbName {
-			dbOID = db.OID
-			break
-		}
-	}
+	dbOID := FindDatabaseOID(dbData, dbName)
 	if dbOID == 0 {
 		return nil, fmt.Errorf("database %q not found", dbName)
 	}
@@ -273,7 +266,7 @@ func ScanAllSequences(dataDir string) (map[string][]SequenceData, error) {
 	}
 
 	for _, db := range ParsePGDatabase(dbData) {
-		if strings.HasPrefix(db.Name, "template") {
+		if isTemplateDB(db.Name) {
 			continue
 		}
 

@@ -151,12 +151,12 @@ func ParseControlFile(data []byte) (*ControlFile, error) {
 
 	// checkPoint: XLogRecPtr (uint64) at offset 32
 	checkpointLSN := binary.LittleEndian.Uint64(data[32:40])
-	cf.CheckpointLSN = formatLSN(checkpointLSN)
+	cf.CheckpointLSN = FormatLSN(checkpointLSN)
 
 	// checkPointCopy starts at offset 40 (CheckPoint structure)
 	// CheckPoint.redo: XLogRecPtr at offset 40
 	redoLSN := binary.LittleEndian.Uint64(data[40:48])
-	cf.RedoLSN = formatLSN(redoLSN)
+	cf.RedoLSN = FormatLSN(redoLSN)
 	cf.RedoWALFile = formatWALFilename(redoLSN, 1) // timeline 1 as default
 
 	// CheckPoint.ThisTimeLineID: uint32 at offset 48
@@ -314,13 +314,6 @@ func findStorageSection(data []byte, startOffset int) int {
 		}
 	}
 	return 0
-}
-
-// formatLSN formats an LSN as PostgreSQL does (high/low)
-func formatLSN(lsn uint64) string {
-	high := uint32(lsn >> 32)
-	low := uint32(lsn & 0xFFFFFFFF)
-	return fmt.Sprintf("%X/%X", high, low)
 }
 
 // formatWALFilename formats the WAL filename for a given LSN

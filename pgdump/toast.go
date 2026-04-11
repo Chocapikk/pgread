@@ -477,19 +477,13 @@ func AnalyzeTOAST(dataDir, dbName string) ([]TOASTInfo, error) {
 		return nil, err
 	}
 	
-	var dbOID uint32
-	for _, db := range ParsePGDatabase(dbData) {
-		if db.Name == dbName {
-			dbOID = db.OID
-			break
-		}
-	}
+	dbOID := FindDatabaseOID(dbData, dbName)
 	if dbOID == 0 {
 		return nil, fmt.Errorf("database %q not found", dbName)
 	}
-	
+
 	basePath := filepath.Join(dataDir, "base", strconv.FormatUint(uint64(dbOID), 10))
-	
+
 	// Read pg_class to find TOAST tables
 	classData, err := os.ReadFile(filepath.Join(basePath, "1259"))
 	if err != nil {

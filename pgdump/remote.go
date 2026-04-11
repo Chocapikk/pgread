@@ -179,7 +179,7 @@ func (s SummaryResult) String() string {
 
 	b.WriteString("DATABASES\n")
 	for _, db := range s.dbs {
-		if strings.HasPrefix(db.Name, "template") {
+		if isTemplateDB(db.Name) {
 			continue
 		}
 		tables := s.tables[db.OID]
@@ -210,7 +210,7 @@ func (s SummaryResult) MarshalJSON() ([]byte, error) {
 		}
 	}
 	for _, db := range s.dbs {
-		if strings.HasPrefix(db.Name, "template") {
+		if isTemplateDB(db.Name) {
 			continue
 		}
 		for _, t := range s.tables[db.OID] {
@@ -419,7 +419,7 @@ func (c *RemoteClient) DumpDatabaseByName(name string) *DatabaseDump {
 func (c *RemoteClient) DumpAll() *DumpResult {
 	result := &DumpResult{}
 	for _, db := range c.Databases() {
-		if strings.HasPrefix(db.Name, "template") {
+		if isTemplateDB(db.Name) {
 			continue
 		}
 		if dump := c.DumpDatabase(db.OID); dump != nil {
@@ -446,7 +446,7 @@ func (c *RemoteClient) Summary() SummaryResult {
 		tables:  make(map[uint32][]TableInfo),
 	}
 	for _, db := range s.dbs {
-		if !strings.HasPrefix(db.Name, "template") {
+		if !isTemplateDB(db.Name) {
 			s.tables[db.OID] = c.Tables(db.OID)
 		}
 	}

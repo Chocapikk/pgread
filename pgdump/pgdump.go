@@ -116,7 +116,7 @@ func DumpDataDir(dataDir string, opts *Options) (*DumpResult, error) {
 
 	result := &DumpResult{}
 	for _, db := range ParsePGDatabase(dbData) {
-		if strings.HasPrefix(db.Name, "template") {
+		if isTemplateDB(db.Name) {
 			continue
 		}
 		if opts.DatabaseFilter != "" && db.Name != opts.DatabaseFilter {

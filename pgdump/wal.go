@@ -371,7 +371,7 @@ func isZeroPadding(data []byte) bool {
 }
 
 func align8(n int) int {
-	return (n + 7) &^ 7
+	return align(n, 8)
 }
 
 func rmgrName(rmid uint8) string {

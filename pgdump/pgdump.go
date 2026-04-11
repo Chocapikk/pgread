@@ -245,16 +245,8 @@ func dumpTable(filenode uint32, info TableInfo, attrs []AttrInfo, ctx *dumpConte
 		tableToastReader = ctx.toastReader
 	}
 
-	t.Rows = ReadRowsWithTOAST(data, cols, true, tableToastReader)
-	if ctx.encoding != PGEncUTF8 && ctx.encoding != PGEncSQLASCII {
-		for i, row := range t.Rows {
-			for k, v := range row {
-				if s, ok := v.(string); ok {
-					t.Rows[i][k] = ConvertToUTF8(s, ctx.encoding)
-				}
-			}
-		}
-	}
+	decoder := pgEncodingToDecoder(ctx.encoding)
+	t.Rows = readRowsConverted(data, cols, tableToastReader, decoder)
 	t.RowCount = len(t.Rows)
 	return t
 }

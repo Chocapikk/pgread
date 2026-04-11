@@ -1,6 +1,10 @@
 package pgdump
 
-import "fmt"
+import (
+	"fmt"
+
+	"golang.org/x/text/encoding"
+)
 
 // ReadTuples extracts all visible tuples from heap file data
 func ReadTuples(data []byte, visibleOnly bool) []TupleEntry {
@@ -23,9 +27,24 @@ func ReadRows(data []byte, columns []Column, visibleOnly bool) []map[string]inte
 
 // ReadRowsWithTOAST decodes tuples using column schema, resolving TOAST pointers.
 func ReadRowsWithTOAST(data []byte, columns []Column, visibleOnly bool, toastReader *TOASTReader) []map[string]interface{} {
+	return readRowsConverted(data, columns, toastReader, nil)
+}
+
+// readRowsConverted decodes tuples with optional encoding conversion.
+// If decoder is non-nil, string values are converted to UTF-8 inline.
+func readRowsConverted(data []byte, columns []Column, toastReader *TOASTReader, decoder *encoding.Decoder) []map[string]interface{} {
 	var rows []map[string]interface{}
-	for _, t := range ReadTuples(data, visibleOnly) {
+	for _, t := range ReadTuples(data, true) {
 		if row := DecodeTupleWithTOAST(t.Tuple, columns, toastReader); row != nil {
+			if decoder != nil {
+				for k, v := range row {
+					if s, ok := v.(string); ok {
+						if converted, err := decoder.String(s); err == nil {
+							row[k] = converted
+						}
+					}
+				}
+			}
 			rows = append(rows, row)
 		}
 	}

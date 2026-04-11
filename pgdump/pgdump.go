@@ -155,6 +155,14 @@ func DumpDatabaseFromFiles(classData, attrData []byte, reader FileReader, opts *
 		chunks: make(map[uint32][]TOASTChunk),
 	}
 
+	// Build OID-to-filenode map for resolving TOAST table filenodes.
+	// After VACUUM FULL, the OID (reltoastrelid) stays the same but the
+	// relfilenode changes. The file on disk is named by filenode, not OID.
+	oidToFilenode := make(map[uint32]uint32)
+	for fn, ti := range tables {
+		oidToFilenode[ti.OID] = fn
+	}
+
 	result := &DatabaseDump{}
 	for filenode, info := range tables {
 		if info.Kind != "r" && info.Kind != "" {
@@ -167,13 +175,13 @@ func DumpDatabaseFromFiles(classData, attrData []byte, reader FileReader, opts *
 			continue
 		}
 
-		table := dumpTable(filenode, info, attrs[info.OID], reader, opts, toastReader)
+		table := dumpTable(filenode, info, attrs[info.OID], reader, opts, toastReader, oidToFilenode)
 		result.Tables = append(result.Tables, table)
 	}
 	return result, nil
 }
 
-func dumpTable(filenode uint32, info TableInfo, attrs []AttrInfo, reader FileReader, opts *Options, toastReader *TOASTReader) TableDump {
+func dumpTable(filenode uint32, info TableInfo, attrs []AttrInfo, reader FileReader, opts *Options, toastReader *TOASTReader, oidToFilenode map[uint32]uint32) TableDump {
 	t := TableDump{
 		OID:      info.OID,
 		Name:     info.Name,
@@ -208,10 +216,14 @@ func dumpTable(filenode uint32, info TableInfo, attrs []AttrInfo, reader FileRea
 	if info.ToastRelID != 0 && toastReader != nil && reader != nil {
 		// Lazily load TOAST chunks if not already cached
 		if _, loaded := toastReader.chunks[info.ToastRelID]; !loaded {
-			if toastData, err := reader(info.ToastRelID); err == nil && len(toastData) > 0 {
+			// Resolve the TOAST OID to its actual filenode on disk.
+			// After VACUUM FULL the relfilenode differs from the OID.
+			toastFilenode := info.ToastRelID
+			if fn, ok := oidToFilenode[info.ToastRelID]; ok {
+				toastFilenode = fn
+			}
+			if toastData, err := reader(toastFilenode); err == nil && len(toastData) > 0 {
 				toastReader.LoadTOASTTable(info.ToastRelID, toastData)
-			} else {
-				_ = err
 			}
 		}
 		tableToastReader = toastReader

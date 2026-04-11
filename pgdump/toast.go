@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+
+	"github.com/pierrec/lz4/v4"
 )
 
 // TOASTPointer represents a TOAST pointer in PostgreSQL
@@ -76,8 +78,9 @@ func ParseTOASTPointer(data []byte) *TOASTPointer {
 	// va_extinfo: compression method in high 2 bits, external stored size in low 30 bits
 	extinfo := binary.LittleEndian.Uint32(data[offset : offset+4])
 	ptr.ExtSize = extinfo & 0x3FFFFFFF
+	// Compression method: 0=pglz, 1=lz4, 2=uncompressed (TOAST_INVALID_COMPRESSION_ID)
 	ptr.CompressionMethod = int(extinfo >> 30)
-	ptr.IsCompressed = (extinfo >> 30) != 0
+	ptr.IsCompressed = ptr.CompressionMethod < 2
 	offset += 4
 
 	// va_valueid (chunk_id)
@@ -99,15 +102,35 @@ func IsTOASTPointer(data []byte) bool {
 	return data[0] == 0x01 && data[1] == 0x12
 }
 
-// ReadTOASTTable reads all chunks from a TOAST table file
+// ReadTOASTTable reads all chunks from a TOAST table file.
+// It uses strict visibility: tuples with a non-zero xmax are considered dead
+// even if hint bits have not been set yet. This avoids reading stale chunks
+// from deleted-but-not-yet-hinted tuples (common after UPDATE before checkpoint).
 func ReadTOASTTable(data []byte) []TOASTChunk {
 	var chunks []TOASTChunk
 
 	// TOAST table schema:
 	// chunk_id (oid/4), chunk_seq (int4/4), chunk_data (bytea/varlena)
-	for _, entry := range ReadTuples(data, true) {
+	for _, entry := range ReadTuples(data, false) {
 		tuple := entry.Tuple
 		if tuple == nil || len(tuple.Data) < 8 {
+			continue
+		}
+
+		// TOAST visibility: accept tuples that are not provably dead.
+		// After VACUUM FULL, PostgreSQL rewrites tuples with a new xmin
+		// but does not set XMIN_COMMITTED hint bits until a backend reads
+		// them through normal access paths. We cannot require XMIN_COMMITTED
+		// or we would miss all TOAST data after VACUUM FULL.
+		//
+		// Instead, skip tuples that are provably dead:
+		//   - XMAX_COMMITTED set and XMAX_INVALID not set = definitely deleted
+		//   - xmax != 0 and not XMAX_INVALID = targeted by DELETE/UPDATE
+		h := tuple.Header
+		if h.XmaxCommitted && !h.XmaxInvalid {
+			continue
+		}
+		if h.Xmax != 0 && !h.XmaxInvalid {
 			continue
 		}
 
@@ -165,30 +188,32 @@ func ReassembleTOAST(chunks []TOASTChunk, valueID uint32, ptr *TOASTPointer) []b
 	data := buf.Bytes()
 
 	// Decompress if needed
-	if ptr != nil && ptr.IsCompressed && len(data) > 0 {
-		rawSize := int(ptr.RawSize)
-		
-		// Try LZ4 first if compression method indicates it
+	if ptr != nil && ptr.IsCompressed && len(data) > 4 {
+		rawSize := int(ptr.RawSize) - 4 // subtract VARHDRSZ (va_rawsize includes varlena header)
+
+		// TOAST external chunks include a 4-byte va_tcinfo prefix (compression
+		// method + raw size) before the actual compressed stream. Skip it for
+		// both LZ4 and pglz.
+		compressed := data[4:]
+
 		if ptr.CompressionMethod == ToastCompressionLZ4 {
-			if decompressed, err := decompressLZ4(data, rawSize); err == nil {
-				return decompressed
+			if d, err := decompressInlineLZ4(compressed, rawSize); err == nil {
+				return d
 			}
 		}
-		
-		// Try pglz
-		if decompressed, err := decompressPGLZ(data, rawSize); err == nil && len(decompressed) > 0 {
-			return decompressed
+
+		if d, err := decompressPGLZ(compressed, rawSize); err == nil && len(d) > 0 {
+			return d
 		}
-		
+
 		// Try zlib as fallback
-		if r, err := zlib.NewReader(bytes.NewReader(data)); err == nil {
+		if r, err := zlib.NewReader(bytes.NewReader(compressed)); err == nil {
 			defer r.Close()
-			if decompressed, err := io.ReadAll(r); err == nil {
-				return decompressed
+			if d, err := io.ReadAll(r); err == nil {
+				return d
 			}
 		}
-		
-		// Return compressed data if decompression fails
+
 		return data
 	}
 
@@ -217,8 +242,18 @@ func decompressPGLZ(data []byte, rawSize int) ([]byte, error) {
 				b1, b2 := data[pos], data[pos+1]
 				pos += 2
 
-				offset := int(b1) | (int(b2&0xF0) << 4)
-				length := int(b2&0x0F) + 3
+				// PostgreSQL pglz format (pg_lzcompress.c):
+				// sp[0] low nibble = match length - 3
+				// sp[0] high nibble << 4 | sp[1] = back-reference offset
+				length := int(b1&0x0F) + 3
+				offset := (int(b1&0xF0) << 4) | int(b2)
+
+				// Extended length: if length == 18 (max for 4 bits + 3),
+				// next byte is added to get longer matches
+				if length == 18 && pos < len(data) {
+					length += int(data[pos])
+					pos++
+				}
 
 				if offset == 0 || offset > len(result) {
 					continue
@@ -238,82 +273,37 @@ func decompressPGLZ(data []byte, rawSize int) ([]byte, error) {
 	return result, nil
 }
 
-// decompressLZ4 decompresses LZ4 compressed data
-// LZ4 block format: https://github.com/lz4/lz4/blob/dev/doc/lz4_Block_format.md
+// decompressInlineLZ4 decompresses an inline compressed LZ4 varlena.
+// Unlike TOAST LZ4, there is no 4-byte size prefix - data is the raw LZ4 block.
+func decompressInlineLZ4(data []byte, rawSize int) ([]byte, error) {
+	if len(data) == 0 {
+		return nil, fmt.Errorf("empty LZ4 data")
+	}
+	result := make([]byte, rawSize)
+	n, err := lz4.UncompressBlock(data, result)
+	if err != nil {
+		return nil, fmt.Errorf("LZ4 inline decompress failed: %w", err)
+	}
+	return result[:n], nil
+}
+
+// decompressLZ4 decompresses PostgreSQL's LZ4-compressed TOAST data.
+// PostgreSQL prepends a 4-byte little-endian raw size before the LZ4 block data.
 func decompressLZ4(data []byte, rawSize int) ([]byte, error) {
-	if len(data) < 1 {
-		return nil, fmt.Errorf("data too short")
+	if len(data) < 5 {
+		return nil, fmt.Errorf("LZ4 data too short: %d bytes", len(data))
 	}
 
-	result := make([]byte, 0, rawSize)
-	pos := 0
+	// Skip PostgreSQL's 4-byte size prefix
+	compressed := data[4:]
 
-	for pos < len(data) && len(result) < rawSize {
-		// Read token
-		token := data[pos]
-		pos++
-
-		// Literal length
-		literalLen := int(token >> 4)
-		if literalLen == 15 {
-			for pos < len(data) {
-				extra := int(data[pos])
-				pos++
-				literalLen += extra
-				if extra != 255 {
-					break
-				}
-			}
-		}
-
-		// Copy literals
-		if pos+literalLen > len(data) {
-			literalLen = len(data) - pos
-		}
-		result = append(result, data[pos:pos+literalLen]...)
-		pos += literalLen
-
-		// Check if we've reached the end
-		if pos >= len(data) || len(result) >= rawSize {
-			break
-		}
-
-		// Read match offset (little-endian 16-bit)
-		if pos+2 > len(data) {
-			break
-		}
-		offset := int(data[pos]) | (int(data[pos+1]) << 8)
-		pos += 2
-
-		if offset == 0 {
-			return nil, fmt.Errorf("invalid offset")
-		}
-
-		// Match length
-		matchLen := int(token & 0x0F) + 4
-		if matchLen == 19 {
-			for pos < len(data) {
-				extra := int(data[pos])
-				pos++
-				matchLen += extra
-				if extra != 255 {
-					break
-				}
-			}
-		}
-
-		// Copy match
-		if offset > len(result) {
-			return nil, fmt.Errorf("offset too large")
-		}
-		
-		start := len(result) - offset
-		for i := 0; i < matchLen && len(result) < rawSize; i++ {
-			result = append(result, result[start+i%offset])
-		}
+	result := make([]byte, rawSize)
+	n, err := lz4.UncompressBlock(compressed, result)
+	if err != nil {
+		return nil, fmt.Errorf("LZ4 decompress failed: %w", err)
 	}
 
-	return result, nil
+	return result[:n], nil
 }
 
 // TOASTReader provides TOAST-aware value reading

@@ -117,11 +117,14 @@ func TestParseTOASTPointer(t *testing.T) {
 	data[3] = 0x04
 	data[4] = 0x00
 	data[5] = 0x00
-	// va_extsize = 512 (little-endian at offset 6)
+	// va_extinfo = uncompressed (method=2) | size=512
+	// method 2 = TOAST_INVALID_COMPRESSION_ID (uncompressed)
+	// top 2 bits = 10 (method 2), low 30 bits = 512 (0x200)
+	// 0x80000200 in LE = 0x00 0x02 0x00 0x80
 	data[6] = 0x00
 	data[7] = 0x02
 	data[8] = 0x00
-	data[9] = 0x00
+	data[9] = 0x80
 	// va_valueid = 42 (little-endian at offset 10)
 	data[10] = 0x2A
 	data[11] = 0x00

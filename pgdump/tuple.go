@@ -7,6 +7,8 @@ type HeapTupleHeader struct {
 	THoff         uint8
 	Natts         int
 	Infomask      uint16
+	Xmin          uint32
+	Xmax          uint32
 	XminCommitted bool
 	XmaxInvalid   bool
 	XmaxCommitted bool
@@ -26,6 +28,8 @@ func ParseHeapTuple(data []byte) *HeapTupleData {
 		return nil
 	}
 
+	xmin := u32(data, 0)
+	xmax := u32(data, 4)
 	infomask := u16(data, 20)
 	infomask2 := u16(data, 18)
 	hoff := data[22]
@@ -38,6 +42,8 @@ func ParseHeapTuple(data []byte) *HeapTupleData {
 		THoff:         hoff,
 		Natts:         int(infomask2 & 0x07FF),
 		Infomask:      infomask,
+		Xmin:          xmin,
+		Xmax:          xmax,
 		HasNull:       infomask&0x0001 != 0,
 		XminCommitted: infomask&0x0100 != 0,
 		XmaxCommitted: infomask&0x0400 != 0,
@@ -59,10 +65,21 @@ func ParseHeapTuple(data []byte) *HeapTupleData {
 	return tuple
 }
 
-// IsVisible checks if tuple is visible (committed and not deleted)
+// IsVisible checks if tuple is visible.
+// Without access to PostgreSQL's CLOG, we cannot confirm xmin committed status
+// (hint bits may not be set for recently inserted or VACUUM FULL'd tuples).
+// Instead, accept all tuples that are not provably dead.
 func (t *HeapTupleData) IsVisible() bool {
 	h := t.Header
-	return h.XminCommitted && (h.XmaxInvalid || !h.XmaxCommitted)
+	// Provably dead: xmax is committed and not invalid
+	if h.XmaxCommitted && !h.XmaxInvalid {
+		return false
+	}
+	// Provably dead: xmax set (targeted by DELETE/UPDATE) and no hint bits yet
+	if h.Xmax != 0 && !h.XmaxInvalid {
+		return false
+	}
+	return true
 }
 
 // IsNull checks if attribute at position is null (1-indexed)

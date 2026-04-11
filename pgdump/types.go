@@ -667,7 +667,33 @@ func ReadVarlena(data []byte) ([]byte, int) {
 	if totalLen < 4 || len(data) < totalLen {
 		return nil, 4
 	}
-	return data[4:totalLen], totalLen
+
+	payload := data[4:totalLen]
+
+	// Inline compressed varlena: bit 1 of header is set (VARATT_IS_COMPRESSED).
+	// Layout after the 4-byte varlena header:
+	//   va_tcinfo (4 bytes): top 2 bits = compression method, low 30 bits = raw size (includes VARHDRSZ)
+	//   compressed data (raw LZ4 block or pglz stream, no extra prefix)
+	if header&2 != 0 && len(payload) >= 4 {
+		rawInfo := u32(payload, 0)
+		method := int(rawInfo >> 30)                 // 0=pglz, 1=lz4
+		rawSize := int(rawInfo & 0x3FFFFFFF)          // data size (no VARHDRSZ for inline)
+		compressed := payload[4:]
+
+		if rawSize > 0 && len(compressed) > 0 {
+			if method == ToastCompressionLZ4 {
+				if d, err := decompressInlineLZ4(compressed, rawSize); err == nil {
+					return d, totalLen
+				}
+			}
+			if d, err := decompressPGLZ(compressed, rawSize); err == nil && len(d) > 0 {
+				return d, totalLen
+			}
+		}
+		return compressed, totalLen
+	}
+
+	return payload, totalLen
 }
 
 // ReadVarlenaWithTOAST reads a varlena value, resolving TOAST pointers via the reader.

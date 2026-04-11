@@ -1106,13 +1106,24 @@ func TestIsVisible(t *testing.T) {
 			visible: true,
 		},
 		{
-			name: "not committed",
+			name: "not committed but not dead",
 			header: &HeapTupleHeader{
 				XminCommitted: false,
 				XmaxInvalid:   true,
 				XmaxCommitted: false,
+				Xmax:          0,
 			},
-			visible: false,
+			visible: true, // no CLOG access, so accept unless provably dead
+		},
+		{
+			name: "not committed with active xmax",
+			header: &HeapTupleHeader{
+				XminCommitted: false,
+				XmaxInvalid:   false,
+				XmaxCommitted: false,
+				Xmax:          100,
+			},
+			visible: false, // xmax set without INVALID = likely deleted
 		},
 		{
 			name: "deleted (xmax committed)",

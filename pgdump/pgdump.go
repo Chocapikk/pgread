@@ -41,6 +41,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"golang.org/x/text/encoding"
 )
 
 // Version is set at build time via ldflags
@@ -53,6 +55,7 @@ type Options struct {
 	ListOnly         bool   // Schema only, no data
 	SkipSystemTables bool   // Skip pg_* tables (default: true)
 	PostgresVersion  int    // Hint PG version (0 = auto)
+	OutputEncoding   string // Output encoding (default: "UTF-8")
 }
 
 // DumpResult contains complete dump
@@ -171,6 +174,7 @@ func dumpDatabaseWithEncoding(classData, attrData []byte, reader FileReader, opt
 		},
 		oidToFilenode: oidToFilenode,
 		encoding:      enc,
+		outEncoder:    OutputEncoder(opts.OutputEncoding),
 	}
 
 	result := &DatabaseDump{}
@@ -198,6 +202,7 @@ type dumpContext struct {
 	toastReader   *TOASTReader
 	oidToFilenode map[uint32]uint32
 	encoding      int
+	outEncoder    *encoding.Encoder
 }
 
 func dumpTable(filenode uint32, info TableInfo, attrs []AttrInfo, ctx *dumpContext) TableDump {
@@ -246,7 +251,7 @@ func dumpTable(filenode uint32, info TableInfo, attrs []AttrInfo, ctx *dumpConte
 	}
 
 	decoder := pgEncodingToDecoder(ctx.encoding)
-	t.Rows = readRowsConverted(data, cols, tableToastReader, decoder)
+	t.Rows = readRowsConverted(data, cols, tableToastReader, decoder, ctx.outEncoder)
 	t.RowCount = len(t.Rows)
 	return t
 }

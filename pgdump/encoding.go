@@ -1,6 +1,8 @@
 package pgdump
 
 import (
+	"strings"
+
 	"golang.org/x/text/encoding"
 	"golang.org/x/text/encoding/charmap"
 	"golang.org/x/text/encoding/japanese"
@@ -138,7 +140,71 @@ func ConvertToUTF8(s string, enc int) string {
 	}
 	result, err := decoder.String(s)
 	if err != nil {
-		return s // return original on error
+		return s
 	}
 	return result
+}
+
+// OutputEncoder returns an encoder for the given encoding name.
+// Returns nil for UTF-8 or empty string (no conversion needed).
+func OutputEncoder(name string) *encoding.Encoder {
+	if name == "" || strings.EqualFold(name, "UTF-8") || strings.EqualFold(name, "UTF8") {
+		return nil
+	}
+	enc := encodingByName(name)
+	if enc == nil {
+		return nil
+	}
+	return enc.NewEncoder()
+}
+
+func encodingByName(name string) encoding.Encoding {
+	switch strings.ToUpper(strings.ReplaceAll(name, "-", "")) {
+	case "GBK":
+		return simplifiedchinese.GBK
+	case "GB18030":
+		return simplifiedchinese.GB18030
+	case "GB2312", "EUCCN":
+		return simplifiedchinese.HZGB2312
+	case "BIG5":
+		return traditionalchinese.Big5
+	case "SHIFTJIS", "SJIS":
+		return japanese.ShiftJIS
+	case "EUCJP":
+		return japanese.EUCJP
+	case "EUCKR", "UHC":
+		return korean.EUCKR
+	case "LATIN1", "ISO88591":
+		return charmap.ISO8859_1
+	case "LATIN2", "ISO88592":
+		return charmap.ISO8859_2
+	case "LATIN3", "ISO88593":
+		return charmap.ISO8859_3
+	case "LATIN4", "ISO88594":
+		return charmap.ISO8859_4
+	case "LATIN5", "ISO88599":
+		return charmap.ISO8859_9
+	case "WIN1250", "WINDOWS1250":
+		return charmap.Windows1250
+	case "WIN1251", "WINDOWS1251":
+		return charmap.Windows1251
+	case "WIN1252", "WINDOWS1252":
+		return charmap.Windows1252
+	case "WIN1253", "WINDOWS1253":
+		return charmap.Windows1253
+	case "WIN1254", "WINDOWS1254":
+		return charmap.Windows1254
+	case "WIN1255", "WINDOWS1255":
+		return charmap.Windows1255
+	case "WIN1256", "WINDOWS1256":
+		return charmap.Windows1256
+	case "WIN1257", "WINDOWS1257":
+		return charmap.Windows1257
+	case "KOI8R":
+		return charmap.KOI8R
+	case "KOI8U":
+		return charmap.KOI8U
+	default:
+		return nil
+	}
 }

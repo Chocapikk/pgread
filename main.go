@@ -26,6 +26,7 @@ func main() {
 		showSequences, showRelmap, blockRange      string
 		binaryDump, skipOldValues, toastVerbose    bool
 		segmentNumber, segmentSize                 int
+		outputEncoding                             string
 	)
 
 	flag.StringVar(&dataDir, "d", "", "PostgreSQL data directory (auto-detected if not set)")
@@ -55,6 +56,7 @@ func main() {
 	flag.BoolVar(&toastVerbose, "toast-verbose", false, "Verbose TOAST information")
 	flag.IntVar(&segmentNumber, "n", 0, "Force segment number (for multi-segment files)")
 	flag.IntVar(&segmentSize, "s", 0, "Force segment size in bytes (default: 1GB)")
+	flag.StringVar(&outputEncoding, "encoding", "", "Output encoding (default: UTF-8). Supported: UTF-8, GBK, GB18030, BIG5, SJIS, EUC-JP, EUC-KR, LATIN1-5, WIN1250-1258, KOI8-R, KOI8-U, ISO-8859-5/6/7/8")
 	flag.BoolVar(&verbose, "v", false, "Verbose output")
 	flag.BoolVar(&debug, "debug", false, "Debug tuple decoding")
 	flag.BoolVar(&showVersion, "version", false, "Show version")
@@ -346,6 +348,7 @@ func main() {
 		TableFilter:      tableFilter,
 		ListOnly:         listOnly,
 		SkipSystemTables: true,
+		OutputEncoding:   outputEncoding,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)

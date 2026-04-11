@@ -34,30 +34,37 @@ func ReadRowsWithTOAST(data []byte, columns []Column, visibleOnly bool, toastRea
 // decoder converts from DB encoding to UTF-8, encoder converts from UTF-8 to output encoding.
 func readRowsConverted(data []byte, columns []Column, toastReader *TOASTReader, decoder *encoding.Decoder, encoder *encoding.Encoder) []map[string]interface{} {
 	var rows []map[string]interface{}
-	needsConvert := decoder != nil || encoder != nil
 	for _, t := range ReadTuples(data, true) {
-		if row := DecodeTupleWithTOAST(t.Tuple, columns, toastReader); row != nil {
-			if needsConvert {
-				for k, v := range row {
-					if s, ok := v.(string); ok {
-						if decoder != nil {
-							if converted, err := decoder.String(s); err == nil {
-								s = converted
-							}
-						}
-						if encoder != nil {
-							if converted, err := encoder.String(s); err == nil {
-								s = converted
-							}
-						}
-						row[k] = s
-					}
-				}
-			}
-			rows = append(rows, row)
+		row := DecodeTupleWithTOAST(t.Tuple, columns, toastReader)
+		if row == nil {
+			continue
 		}
+		if decoder != nil || encoder != nil {
+			convertRowStrings(row, decoder, encoder)
+		}
+		rows = append(rows, row)
 	}
 	return rows
+}
+
+func convertRowStrings(row map[string]interface{}, decoder *encoding.Decoder, encoder *encoding.Encoder) {
+	for k, v := range row {
+		s, ok := v.(string)
+		if !ok {
+			continue
+		}
+		if decoder != nil {
+			if c, err := decoder.String(s); err == nil {
+				s = c
+			}
+		}
+		if encoder != nil {
+			if c, err := encoder.String(s); err == nil {
+				s = c
+			}
+		}
+		row[k] = s
+	}
 }
 
 // Debug enables debug output for tuple decoding

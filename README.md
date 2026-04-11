@@ -58,6 +58,7 @@ pgread -sequences all                 # List all sequences with values
 pgread -relmap global                 # Show pg_filenode.map (OID→filenode)
 pgread -f /path/to/file -R 0:10       # Read specific block range
 pgread -f /path/to/index -index       # Parse index file (BTree/GIN/GiST/Hash)
+pgread -encoding GBK -sql             # Output in GBK encoding (auto-detects DB encoding)
 ```
 
 ### Password Extraction
@@ -411,6 +412,17 @@ go build
 GOOS=windows go build -o pgread.exe
 GOOS=darwin GOARCH=arm64 go build -o pgread-macos
 ```
+
+## Encoding Support
+
+pgread auto-detects the database encoding from `pg_database` and converts to UTF-8 by default. Use `-encoding` to output in a specific charset:
+
+```bash
+pgread -sql -encoding GBK > dump.sql   # Output in GBK
+pgread -sql                            # Default: UTF-8
+```
+
+Supported: UTF-8, GBK, GB18030, BIG5, SJIS, EUC-JP, EUC-KR, EUC-CN, LATIN1-5, WIN1250-1258, KOI8-R, KOI8-U, ISO-8859-5/6/7/8.
 
 ## Known Limitations
 

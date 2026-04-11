@@ -414,7 +414,7 @@ GOOS=darwin GOARCH=arm64 go build -o pgread-macos
 
 ## Known Limitations
 
-- **TOAST:** Large values (>2KB) stored in TOAST tables are now automatically resolved. Supports both PGLZ and LZ4 compression. Some edge cases with multi-segment TOAST files may still need work.
+- **TOAST & Compression:** Large values stored in TOAST tables are automatically resolved, including after `VACUUM FULL`. Supports **PGLZ** and **LZ4** compression, both inline (small compressed values kept in the main heap) and external (chunked in TOAST tables). Works with PostgreSQL 12-17.
 - **Encrypted data:** Application-level encryption is returned as-is (ciphertext). pgread extracts what PostgreSQL stores.
 - **In-flight data:** Recently written data still in shared buffers may not be on disk yet. Run `CHECKPOINT` first if possible.
 

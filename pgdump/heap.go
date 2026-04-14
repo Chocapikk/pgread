@@ -2,8 +2,6 @@ package pgdump
 
 import (
 	"fmt"
-	"strings"
-	"unicode/utf8"
 
 	"golang.org/x/text/encoding"
 )
@@ -59,10 +57,6 @@ func convertRowStrings(row map[string]interface{}, decoder *encoding.Decoder, en
 			if c, err := decoder.String(s); err == nil {
 				s = c
 			}
-		}
-		// Sanitize invalid UTF-8 sequences before any further processing
-		if !utf8.ValidString(s) {
-			s = strings.ToValidUTF8(s, "\uFFFD")
 		}
 		if encoder != nil {
 			if c, err := encoder.String(s); err == nil {

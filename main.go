@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -26,7 +27,7 @@ func main() {
 		showSequences, showRelmap, blockRange      string
 		binaryDump, skipOldValues, toastVerbose    bool
 		segmentNumber, segmentSize                 int
-		outputEncoding                             string
+		outputEncoding, outputFile                 string
 	)
 
 	flag.StringVar(&dataDir, "d", "", "PostgreSQL data directory (auto-detected if not set)")
@@ -57,6 +58,7 @@ func main() {
 	flag.IntVar(&segmentNumber, "n", 0, "Force segment number (for multi-segment files)")
 	flag.IntVar(&segmentSize, "s", 0, "Force segment size in bytes (default: 1GB)")
 	flag.StringVar(&outputEncoding, "encoding", "", "Output encoding (default: UTF-8). Supported: UTF-8, GBK, GB18030, BIG5, SJIS, EUC-JP, EUC-KR, LATIN1-5, WIN1250-1258, KOI8-R, KOI8-U, ISO-8859-5/6/7/8")
+	flag.StringVar(&outputFile, "output", "", "Write output to file instead of stdout")
 	flag.BoolVar(&verbose, "v", false, "Verbose output")
 	flag.BoolVar(&debug, "debug", false, "Debug tuple decoding")
 	flag.BoolVar(&showVersion, "version", false, "Show version")
@@ -361,22 +363,34 @@ func main() {
 		}
 	}
 
+	// Output destination
+	var w io.Writer = os.Stdout
+	if outputFile != "" {
+		f, err := os.Create(outputFile)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error creating output file: %v\n", err)
+			os.Exit(1)
+		}
+		defer f.Close()
+		w = f
+	}
+
 	// Output format
 	switch {
 	case sqlOutput:
-		if err := result.ToSQL(os.Stdout); err != nil {
+		if err := result.ToSQL(w); err != nil {
 			fmt.Fprintf(os.Stderr, "Error generating SQL: %v\n", err)
 			os.Exit(1)
 		}
 	case csvOutput:
-		if err := result.ToCSV(os.Stdout); err != nil {
+		if err := result.ToCSV(w); err != nil {
 			fmt.Fprintf(os.Stderr, "Error generating CSV: %v\n", err)
 			os.Exit(1)
 		}
 	case tableOutput:
-		result.TableFormat(os.Stdout)
+		result.TableFormat(w)
 	default:
-		enc := json.NewEncoder(os.Stdout)
+		enc := json.NewEncoder(w)
 		enc.SetIndent("", "  ")
 		enc.Encode(result)
 	}
